@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>troonooz</title>
+    <link rel="stylesheet" href="ui.css" />
+  </head>
+  <body class="popup">
+    <header class="head">
+      <img src="icons/icon-32.png" alt="" width="24" height="24" />
+      <strong class="name">troo<span>nooz</span></strong>
+      <span id="status" class="status" title="Server status">&hellip;</span>
+    </header>
+
+    <p id="error" class="error" role="alert" hidden></p>
+
+    <fieldset class="focus">
+      <legend>Check for</legend>
+      <label class="chip"><input type="checkbox" name="focus" value="auto" checked /><span>Everything</span></label>
+      <label class="chip"><input type="checkbox" name="focus" value="news" /><span>News</span></label>
+      <label class="chip"><input type="checkbox" name="focus" value="vendor" /><span>Seller</span></label>
+      <label class="chip"><input type="checkbox" name="focus" value="media" /><span>Media</span></label>
+    </fieldset>
+
+    <div class="actions">
+      <button type="button" class="action primary" data-action="area">
+        <span class="action-title">Select a post or area</span>
+        <span class="action-sub">Drag over just the part you want checked</span>
+      </button>
+      <button type="button" class="action" data-action="page">
+        <span class="action-title">Check this page</span>
+        <span class="action-sub">Screenshot of what&rsquo;s visible, plus the page text</span>
+      </button>
+      <button type="button" class="action" data-action="video">
+        <span class="action-title">Capture a playing video</span>
+        <span class="action-sub">Five frames over ~5 seconds</span>
+      </button>
+    </div>
+
+    <p class="tip">Tip: right-click any image, link, or selected text to check it directly.</p>
+
+    <footer class="foot">
+      <a href="#" id="open-app">Open troonooz</a>
+      <a href="#" id="open-options">Settings</a>
+    </footer>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

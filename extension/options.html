@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>troonooz settings</title>
+    <link rel="stylesheet" href="ui.css" />
+  </head>
+  <body class="options">
+    <header class="head">
+      <img src="icons/icon-48.png" alt="" width="32" height="32" />
+      <h1 class="name">troo<span>nooz</span> settings</h1>
+    </header>
+
+    <form id="form" class="form">
+      <label>
+        <span class="label">Server address</span>
+        <input id="server" type="url" required placeholder="http://localhost:8787" />
+        <span class="hint">Where your troonooz server runs. The extension sends captures there; nothing goes anywhere else.</span>
+      </label>
+      <label>
+        <span class="label">API token <span class="hint-inline">if the server requires one</span></span>
+        <input id="token" type="password" autocomplete="off" />
+      </label>
+
+      <label class="check">
+        <input id="all-sites" type="checkbox" />
+        <span>
+          <span class="label">Fetch original images from websites</span>
+          <span class="hint">When you right-click &ldquo;check this image&rdquo;, download the full-resolution file so its metadata can be inspected. Requires access to all sites; without it, the image address is passed to the server instead.</span>
+        </span>
+      </label>
+
+      <div class="row">
+        <button type="submit" class="button primary">Save</button>
+        <button type="button" id="test" class="button">Test connection</button>
+      </div>
+      <p id="result" class="result" role="status"></p>
+    </form>
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

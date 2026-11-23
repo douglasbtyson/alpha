@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>troonooz</title>
+    <meta name="description" content="Check whether news, sellers, and images or videos you see online can be trusted." />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="#/" aria-label="troonooz home">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <circle cx="11" cy="16" r="8" />
+          <circle cx="21" cy="16" r="8" />
+          <path d="M17.5 16.2l2.4 2.4 4.6-5" />
+        </svg>
+        <span class="brand-name">troo<span>nooz</span></span>
+      </a>
+      <nav class="nav">
+        <a href="#/" data-nav="check">Check</a>
+        <a href="#/history" data-nav="history">History</a>
+      </nav>
+    </header>
+
+    <div id="banner" class="banner" hidden></div>
+
+    <main id="view" tabindex="-1"></main>
+
+    <footer class="footer">
+      <p>
+        troonooz uses AI to weigh evidence. It can be wrong &mdash; treat results as a starting point, check the cited
+        sources, and use your judgment.
+      </p>
+      <p class="footer-meta">
+        <span id="server-status">Connecting&hellip;</span>
+        <button type="button" class="linklike" id="token-button" hidden>Set API token</button>
+      </p>
+    </footer>
+
+    <template id="tpl-check">
+      <section class="hero">
+        <h1>Can you trust it?</h1>
+        <p class="lede">
+          Drop in a screenshot of a post, ad, or article, a photo, or a video. troonooz checks the claims, the seller,
+          and whether the media is real.
+        </p>
+      </section>
+
+      <form id="check-form" class="card check-form" novalidate>
+        <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-describedby="drop-help">
+          <svg viewBox="0 0 24 24" class="drop-icon" aria-hidden="true">
+            <path d="M12 16V4m0 0l-4.5 4.5M12 4l4.5 4.5M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3" />
+          </svg>
+          <p class="drop-title">Drop screenshots, images, or videos</p>
+          <p id="drop-help" class="drop-help">
+            or <span class="linklike">browse</span> &middot; paste a screenshot with <kbd>Ctrl</kbd>/<kbd>&#8984;</kbd>+<kbd>V</kbd>
+          </p>
+          <input id="file-input" type="file" accept="image/*,video/*" multiple hidden />
+        </div>
+        <ul id="attachments" class="attachments" aria-live="polite"></ul>
+
+        <label class="field">
+          <span class="field-label">Text or context <span class="optional">optional</span></span>
+          <textarea id="text-input" rows="4" placeholder="Paste the post text, a message you received, or describe where you saw it"></textarea>
+        </label>
+
+        <label class="field">
+          <span class="field-label">Links to check <span class="optional">optional</span></span>
+          <textarea id="urls-input" rows="2" placeholder="https://&hellip; (one per line): an article, a store, a post"></textarea>
+        </label>
+
+        <fieldset class="field">
+          <legend class="field-label">What should we check?</legend>
+          <div class="chips" role="group">
+            <label class="chip"><input type="checkbox" name="focus" value="auto" checked /><span>Everything relevant</span></label>
+            <label class="chip"><input type="checkbox" name="focus" value="news" /><span>News &amp; claims</span></label>
+            <label class="chip"><input type="checkbox" name="focus" value="vendor" /><span>Seller or ad</span></label>
+            <label class="chip"><input type="checkbox" name="focus" value="media" /><span>Image &amp; video</span></label>
+          </div>
+        </fieldset>
+
+        <label class="switch">
+          <input type="checkbox" id="web-input" checked />
+          <span class="switch-track" aria-hidden="true"></span>
+          <span>Verify with live web search</span>
+        </label>
+
+        <p id="form-error" class="form-error" role="alert" hidden></p>
+
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary" id="submit-button">Check it</button>
+          <span class="form-hint">Most checks take 30&ndash;120 seconds.</span>
+        </div>
+      </form>
+
+      <section class="how">
+        <div class="how-item">
+          <h3>News &amp; claims</h3>
+          <p>Finds the checkable claims, searches for independent corroboration, and flags recycled stories, impersonated sources, and manipulation tactics.</p>
+        </div>
+        <div class="how-item">
+          <h3>Sellers &amp; ads</h3>
+          <p>Looks up reviews, complaints, and domain age, and spots scam patterns like fake discounts, urgency, and risky payment methods.</p>
+        </div>
+        <div class="how-item">
+          <h3>Images &amp; video</h3>
+          <p>Zooms into details for signs of AI generation or editing, reads embedded provenance metadata, and searches for the original context.</p>
+        </div>
+      </section>
+    </template>
+
+    <template id="tpl-report">
+      <section id="progress" class="card progress" hidden>
+        <div class="progress-head">
+          <div class="spinner" aria-hidden="true"></div>
+          <div>
+            <h2 id="progress-title">Checking&hellip;</h2>
+            <p class="muted"><span id="progress-elapsed">0s</span> elapsed</p>
+          </div>
+        </div>
+        <ol id="progress-steps" class="steps" aria-live="polite"></ol>
+      </section>
+      <section id="report-error" class="card error-card" role="alert" hidden></section>
+      <article id="report" class="report" hidden></article>
+    </template>
+
+    <template id="tpl-history">
+      <section class="history-head">
+        <h1>History</h1>
+        <p class="muted">Checks run on this server, newest first.</p>
+      </section>
+      <ul id="history-list" class="history-list"></ul>
+    </template>
+  </body>
+</html>

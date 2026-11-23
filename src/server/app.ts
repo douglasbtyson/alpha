@@ -1,0 +1,394 @@
+import Anthropic from "@anthropic-ai/sdk";
+import express, { type NextFunction, type Request, type Response } from "express";
+import multer from "multer";
+import { timingSafeEqual } from "node:crypto";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { analyze, AnalysisError, type Streamer } from "../analysis/analyzer.js";
+import { InputError, prepareEvidence } from "../analysis/evidence.js";
+import {
+  isHttpUrl,
+  PageCaptureSchema,
+  parseBool,
+  parseFocus,
+  parseList,
+  type AnalysisInput,
+  type FrameUpload,
+  type InputSource,
+  type PageCapture,
+  type UploadedFile,
+} from "../analysis/input.js";
+import { hasFfmpeg } from "../analysis/video.js";
+import type { Config } from "../config.js";
+import { JobStore, type Job, type JobEvent } from "./jobs.js";
+import { ID_RE, ReportStore, type AnalysisRecord } from "./store.js";
+
+const here = dirname(fileURLToPath(import.meta.url));
+/** public/ sits at the repo root, two levels up from src/server and dist/server. */
+export const PUBLIC_DIR = join(here, "..", "..", "public");
+
+export interface AppDeps {
+  config: Config;
+  /** Null when the Claude client could not be created; analyses then fail with a clear message. */
+  streamer: Streamer | null;
+  /** Whether Claude credentials appear to be configured (shown by /api/health and the UI banner). */
+  claudeConfigured?: boolean;
+  store: ReportStore;
+  jobs: JobStore;
+  log?: (msg: string) => void;
+}
+
+function friendlyError(err: unknown, model: string, configured: boolean): { code: string; message: string; internal: boolean } {
+  if (err instanceof InputError) return { code: "input", message: err.message, internal: false };
+  if (err instanceof AnalysisError) return { code: err.code, message: err.message, internal: false };
+  if (err instanceof Anthropic.AuthenticationError) {
+    return { code: "auth", message: "The Anthropic API rejected the server's credentials. Check ANTHROPIC_API_KEY.", internal: false };
+  }
+  if (err instanceof Anthropic.PermissionDeniedError) {
+    return { code: "permission", message: `This API key is not permitted to use ${model} or one of the requested features.`, internal: false };
+  }
+  if (err instanceof Anthropic.NotFoundError) {
+    return { code: "model_not_found", message: `Model "${model}" was not found or is not available to this API key.`, internal: false };
+  }
+  if (err instanceof Anthropic.RateLimitError) {
+    return { code: "rate_limited", message: "The Anthropic API rate limit was reached. Wait a minute and try again.", internal: false };
+  }
+  if (err instanceof Anthropic.BadRequestError) {
+    return { code: "bad_request", message: `The Anthropic API rejected the request: ${err.message}`, internal: false };
+  }
+  if (err instanceof Anthropic.APIConnectionError) {
+    return { code: "network", message: "Could not reach the Anthropic API. Check the server's network connection.", internal: false };
+  }
+  if (err instanceof Anthropic.APIError) {
+    const status = err.status ?? 0;
+    if (status === 529 || status >= 500) {
+      return { code: "overloaded", message: "The Anthropic API is temporarily overloaded or unavailable. Try again shortly.", internal: false };
+    }
+    return { code: "api", message: `Anthropic API error ${status}: ${err.message}`, internal: false };
+  }
+  if (err instanceof Anthropic.AnthropicError) {
+    // Raised by the SDK before or after the HTTP call, e.g. when no credentials can be resolved.
+    const hint = configured ? "" : " Set ANTHROPIC_API_KEY on the server and restart it.";
+    return { code: "client", message: `Claude client error: ${err.message.replace(/\.?\s*$/, ".")}${hint}`, internal: false };
+  }
+  return { code: "internal", message: "Something went wrong while analyzing. Check the server log for details.", internal: true };
+}
+
+function tokenMatches(given: string, expected: string): boolean {
+  const a = Buffer.from(given);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+function str(v: unknown): string {
+  return typeof v === "string" ? v : "";
+}
+
+interface FrameInfo {
+  video?: unknown;
+  time?: unknown;
+  duration?: unknown;
+}
+
+export function createApp(deps: AppDeps): express.Express {
+  const { config, store, jobs } = deps;
+  const log = deps.log ?? ((m: string) => console.log(m));
+  const claudeConfigured = deps.claudeConfigured ?? deps.streamer !== null;
+  const app = express();
+  app.disable("x-powered-by");
+
+  app.use((req, res, next) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Referrer-Policy", "no-referrer");
+    res.setHeader("X-Frame-Options", "DENY");
+    // Browser extensions call the API cross-origin; allow only extension origins.
+    const origin = req.headers.origin;
+    if (origin && /^(chrome|moz|safari-web)-extension:\/\//.test(origin)) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Vary", "Origin");
+      res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+    }
+    if (req.method === "OPTIONS") {
+      res.sendStatus(204);
+      return;
+    }
+    next();
+  });
+
+  const requireAuth = (req: Request, res: Response, next: NextFunction) => {
+    if (!config.apiToken) return next();
+    const header = req.headers.authorization ?? "";
+    const bearer = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+    // EventSource cannot send headers, so the SSE endpoint also accepts ?token=.
+    const query = typeof req.query.token === "string" ? req.query.token : "";
+    if ((bearer && tokenMatches(bearer, config.apiToken)) || (query && tokenMatches(query, config.apiToken))) return next();
+    res.status(401).json({ error: "unauthorized", message: "A valid API token is required." });
+  };
+
+  app.get("/api/health", async (_req, res) => {
+    res.json({
+      ok: true,
+      app: "troonooz",
+      demo: config.demo,
+      model: config.demo ? "demo" : config.model,
+      claude_configured: claudeConfigured,
+      web_research: config.webSearchMaxUses > 0 || config.webFetchMaxUses > 0,
+      server_video: await hasFfmpeg(),
+      auth_required: config.apiToken !== null,
+      limits: { max_files: config.maxFiles, max_file_mb: Math.round(config.maxFileBytes / 1048576), max_images: config.maxImages },
+    });
+  });
+
+  const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: config.maxFileBytes, files: config.maxFiles + 64, fields: 40, fieldSize: 4 * 1024 * 1024 },
+  }).fields([
+    { name: "files", maxCount: config.maxFiles },
+    { name: "frames", maxCount: 64 },
+  ]);
+
+  app.post("/api/analyze", requireAuth, (req, res, next) => {
+    upload(req, res, (err: unknown) => {
+      if (err instanceof multer.MulterError) {
+        const status = err.code === "LIMIT_FILE_SIZE" ? 413 : 400;
+        const message =
+          err.code === "LIMIT_FILE_SIZE"
+            ? `A file is larger than the ${Math.round(config.maxFileBytes / 1048576)} MB limit.`
+            : `Upload rejected: ${err.message}`;
+        res.status(status).json({ error: "upload", message });
+        return;
+      }
+      if (err) return next(err);
+      handleAnalyze(req, res);
+    });
+  });
+
+  const handleAnalyze = (req: Request, res: Response) => {
+    if (jobs.runningCount() >= config.maxConcurrent) {
+      res.status(429).json({ error: "busy", message: "Too many analyses are running. Try again in a minute." });
+      return;
+    }
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const fileMap = (req.files ?? {}) as Record<string, Express.Multer.File[]>;
+    const toUpload = (f: Express.Multer.File): UploadedFile => ({
+      name: f.originalname.slice(0, 200) || "upload",
+      mimeType: f.mimetype,
+      buffer: f.buffer,
+    });
+
+    let page: PageCapture | null = null;
+    if (str(body.page).trim()) {
+      try {
+        const parsed = PageCaptureSchema.safeParse(JSON.parse(str(body.page)));
+        if (parsed.success) page = parsed.data;
+      } catch {
+        res.status(400).json({ error: "input", message: "The page field must be JSON." });
+        return;
+      }
+    }
+
+    let frameInfo: FrameInfo[] = [];
+    if (str(body.frame_info).trim()) {
+      try {
+        const parsed = JSON.parse(str(body.frame_info)) as unknown;
+        if (Array.isArray(parsed)) frameInfo = parsed as FrameInfo[];
+      } catch {
+        res.status(400).json({ error: "input", message: "frame_info must be a JSON array." });
+        return;
+      }
+    }
+    const frames: FrameUpload[] = (fileMap.frames ?? []).map((f, i) => {
+      const info = frameInfo[i] ?? {};
+      const time = Number(info.time);
+      const duration = Number(info.duration);
+      return {
+        ...toUpload(f),
+        video: (typeof info.video === "string" && info.video.trim().slice(0, 200)) || "video",
+        time: Number.isFinite(time) && time >= 0 ? time : i,
+        duration: Number.isFinite(duration) && duration > 0 ? duration : null,
+      };
+    });
+
+    const sourceRaw = str(body.source);
+    const source: InputSource = sourceRaw === "web" || sourceRaw === "extension" ? sourceRaw : "api";
+    const input: AnalysisInput = {
+      files: (fileMap.files ?? []).map(toUpload),
+      frames,
+      imageUrls: parseList(body.image_urls).filter(isHttpUrl),
+      text: str(body.text),
+      urls: parseList(body.urls).filter(isHttpUrl),
+      page,
+      focus: parseFocus(body.focus),
+      webResearch: parseBool(body.web, true),
+      source,
+    };
+
+    const job = jobs.create();
+    res.status(202).json({
+      id: job.id,
+      events_url: `/api/jobs/${job.id}/events`,
+      report_url: `/api/reports/${job.id}`,
+      view_url: `/#/report/${job.id}`,
+    });
+    void runJob(job, input);
+  };
+
+  const runJob = async (job: Job, input: AnalysisInput) => {
+    const started = Date.now();
+    try {
+      if (!deps.streamer) {
+        throw new AnalysisError(
+          "incomplete",
+          "No Claude credentials are configured on the server. Set ANTHROPIC_API_KEY (or run in demo mode with TROONOOZ_DEMO=1).",
+        );
+      }
+      job.progress({ type: "status", message: "Preparing evidence" });
+      const evidence = await prepareEvidence(input, config, (message) => job.progress({ type: "status", message }));
+      job.progress({ type: "status", message: config.demo ? "Running demo analysis (sample data)" : "Analyzing with Claude" });
+      const result = await analyze(
+        evidence,
+        { focus: input.focus, webResearch: input.webResearch, source: input.source },
+        config,
+        deps.streamer,
+        (e) => job.progress(e),
+      );
+      const record: AnalysisRecord = {
+        id: job.id,
+        created_at: new Date(started).toISOString(),
+        completed_at: new Date().toISOString(),
+        duration_ms: Date.now() - started,
+        demo: config.demo,
+        model: result.model,
+        input: {
+          source: input.source,
+          focus: input.focus,
+          web_research: input.webResearch,
+          text_excerpt: evidence.text.slice(0, 500),
+          urls: evidence.urls,
+          page: evidence.page ? { url: evidence.page.url, title: evidence.page.title } : null,
+          thumbnails: evidence.thumbnails,
+          notes: evidence.notes,
+        },
+        signals: evidence.signals,
+        domains: evidence.domains,
+        report: result.report,
+        research: result.research,
+        usage: result.usage,
+        turns: result.turns,
+        zooms: result.zooms,
+      };
+      await store.save(record);
+      job.done();
+      log(`[troonooz] ${job.id} done in ${((Date.now() - started) / 1000).toFixed(1)}s (${result.turns} turns, ${result.research.queries.length} searches)`);
+    } catch (err) {
+      const fe = friendlyError(err, config.model, claudeConfigured);
+      if (fe.internal) console.error(`[troonooz] ${job.id} failed:`, err);
+      else log(`[troonooz] ${job.id} failed: ${fe.code}: ${fe.message}`);
+      job.fail(fe.code, fe.message);
+    }
+  };
+
+  app.get("/api/jobs/:id", requireAuth, (req, res) => {
+    const id = String(req.params.id);
+    const job = jobs.get(id);
+    if (!job) {
+      if (store.has(id)) {
+        res.json({ id, status: "done", events: [] });
+        return;
+      }
+      res.status(404).json({ error: "not_found", message: "No such job." });
+      return;
+    }
+    res.json({ id, status: job.status, events: job.events });
+  });
+
+  app.get("/api/jobs/:id/events", requireAuth, (req, res) => {
+    const id = String(req.params.id);
+    const job = jobs.get(id);
+    if (!job && !store.has(id)) {
+      res.status(404).json({ error: "not_found", message: "No such job." });
+      return;
+    }
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    const send = (e: JobEvent) => res.write(`event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`);
+    if (!job) {
+      send({ type: "done", at: new Date().toISOString(), id });
+      res.end();
+      return;
+    }
+    for (const e of job.events) send(e);
+    if (job.status !== "running") {
+      res.end();
+      return;
+    }
+    const onEvent = (e: JobEvent) => {
+      send(e);
+      if (e.type !== "progress") cleanup();
+    };
+    const ping = setInterval(() => res.write(": ping\n\n"), 15_000);
+    const cleanup = () => {
+      clearInterval(ping);
+      job.off("event", onEvent);
+      res.end();
+    };
+    job.on("event", onEvent);
+    req.on("close", cleanup);
+  });
+
+  app.get("/api/reports", requireAuth, (req, res) => {
+    const limit = Math.min(200, Math.max(1, Number.parseInt(String(req.query.limit ?? "50"), 10) || 50));
+    res.json({ reports: store.list(limit) });
+  });
+
+  app.get("/api/reports/:id", requireAuth, async (req, res) => {
+    const id = String(req.params.id);
+    const rec = ID_RE.test(id) ? await store.get(id) : null;
+    if (!rec) {
+      const job = jobs.get(id);
+      if (job?.status === "running") {
+        res.status(202).json({ status: "running" });
+        return;
+      }
+      res.status(404).json({ error: "not_found", message: "No such report." });
+      return;
+    }
+    res.json(rec);
+  });
+
+  app.delete("/api/reports/:id", requireAuth, async (req, res) => {
+    const ok = await store.delete(String(req.params.id));
+    if (!ok) {
+      res.status(404).json({ error: "not_found", message: "No such report." });
+      return;
+    }
+    res.status(204).end();
+  });
+
+  app.use("/api", (_req, res) => {
+    res.status(404).json({ error: "not_found", message: "Unknown API route." });
+  });
+
+  app.use(
+    express.static(PUBLIC_DIR, {
+      setHeaders: (res) => {
+        res.setHeader(
+          "Content-Security-Policy",
+          "default-src 'self'; img-src 'self' data: blob: https:; media-src 'self' blob:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+        );
+      },
+    }),
+  );
+
+  app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    console.error("[troonooz] request error:", err);
+    if (!res.headersSent) res.status(500).json({ error: "internal", message: "Internal server error." });
+  });
+
+  return app;
+}
