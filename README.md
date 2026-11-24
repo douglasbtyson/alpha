@@ -60,7 +60,7 @@ Each check opens its live report in a new tab of the web app.
  Claude (claude-opus-5-5, adaptive thinking, streaming), agentic loop
    • web_search / web_fetch (server tools) to verify claims and vendors
    • inspect_region (our tool) to zoom into the full-resolution original
-   • submit_report (strict JSON schema) to finish
+   • submit_report (JSON schema; validated, with errors sent back for a retry) to finish
         │
         ▼
  Grounding: cited URLs are checked against what the research actually returned
@@ -74,7 +74,7 @@ Key files:
 | Path | Purpose |
 |---|---|
 | `src/analysis/prompts.ts` | System prompt: investigation method, calibration rules, scoring rubric |
-| `src/analysis/schema.ts` | Report schema (Zod; converted to the strict `submit_report` tool schema) |
+| `src/analysis/schema.ts` | Report schema (Zod; converted to the `submit_report` tool schema and used to validate it) |
 | `src/analysis/analyzer.ts` | The Claude loop: tools, `pause_turn`, refusal/`max_tokens` handling, retries, zoom tool |
 | `src/analysis/evidence.ts` | Turns uploads into labelled image blocks and fenced untrusted text |
 | `src/analysis/images.ts` | Resizing, tiling, zoom crops (sharp) |

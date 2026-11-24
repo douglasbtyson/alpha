@@ -141,7 +141,9 @@ function buildTools(config: Config, webResearch: boolean, zoomable: boolean): To
     description:
       "Submit the final troonooz assessment. Call exactly once, after your investigation, with every field filled. " +
       "This ends the analysis.",
-    strict: true,
+    // Not `strict`: the report schema is too large for the API's constrained-decoding grammar
+    // ("The compiled grammar is too large"). The input is validated with Zod below and a failed
+    // report is sent back to the model with the validation errors.
     eager_input_streaming: true,
     input_schema: betaZodOutputFormat(ReportSchema).schema as Anthropic.Beta.BetaTool.InputSchema,
   });

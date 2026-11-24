@@ -64,8 +64,9 @@ describe("analyze", () => {
     const names = p.tools!.map((t) => ("name" in t ? t.name : ""));
     expect(names).toEqual(["web_search", "web_fetch", "submit_report"]); // no images -> no inspect_region
     expect(p.tools!.find((t) => "name" in t && t.name === "web_search")).toMatchObject({ type: "web_search_20260209", max_uses: 8 });
+    // The report schema exceeds the API's strict-grammar size limit, so it must not be strict.
     const submitTool = p.tools!.find((t) => "name" in t && t.name === "submit_report") as Anthropic.Beta.BetaTool;
-    expect(submitTool.strict).toBe(true);
+    expect(submitTool.strict).toBeUndefined();
     const userContent = p.messages[0]!.content as Array<{ type: string; text?: string; cache_control?: unknown }>;
     expect(userContent[0]!.text).toContain("Today's date: 2026-11-23");
     expect(userContent.at(-1)!.cache_control).toEqual({ type: "ephemeral" });
@@ -142,7 +143,8 @@ describe("analyze", () => {
     const { streamer, calls } = scripted([message([zoom], "tool_use"), message([submit()], "tool_use")]);
     const events: ProgressEvent[] = [];
     const result = await analyze(ev, opts, config, streamer, (e) => events.push(e));
-    expect(calls[0]!.tools!.map((t) => ("name" in t ? t.name : ""))).toContain("inspect_region");
+    const zoomTool = calls[0]!.tools!.find((t) => "name" in t && t.name === "inspect_region") as Anthropic.Beta.BetaTool;
+    expect(zoomTool.strict).toBe(true);
     const results = calls[1]!.messages.at(-1)!.content as ToolResult[];
     expect(results[0]!.tool_use_id).toBe("z1");
     expect(results[0]!.is_error).toBeUndefined();
