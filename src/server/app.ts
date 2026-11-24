@@ -1,7 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import express, { type NextFunction, type Request, type Response } from "express";
 import multer from "multer";
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { analyze, AnalysisError, type KnowledgeAccess, type Streamer } from "../analysis/analyzer.js";
@@ -28,6 +29,28 @@ import { ID_RE, ReportStore, type AnalysisRecord } from "./store.js";
 const here = dirname(fileURLToPath(import.meta.url));
 /** public/ sits at the repo root, two levels up from src/server and dist/server. */
 export const PUBLIC_DIR = join(here, "..", "..", "public");
+
+/**
+ * A fingerprint of the web app's files. Sent on every API response so a page
+ * that was opened before an update can tell it is out of date and ask the
+ * user to reload, instead of misreading responses it doesn't understand.
+ */
+export function uiVersion(dir = PUBLIC_DIR): string {
+  const hash = createHash("sha256");
+  const walk = (d: string) => {
+    for (const entry of readdirSync(d, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const p = join(d, entry.name);
+      if (entry.isDirectory()) walk(p);
+      else if (/\.(html|js|css)$/.test(entry.name)) hash.update(entry.name).update(readFileSync(p));
+    }
+  };
+  try {
+    walk(dir);
+  } catch {
+    return "unknown";
+  }
+  return hash.digest("hex").slice(0, 12);
+}
 
 export interface AppDeps {
   config: Config;
@@ -98,6 +121,7 @@ export function createApp(deps: AppDeps): express.Express {
   const { config, store, jobs } = deps;
   const log = deps.log ?? ((m: string) => console.log(m));
   const kb = deps.knowledge ?? null;
+  const version = uiVersion();
   const claudeConfigured = deps.claudeConfigured ?? deps.streamer !== null;
   const app = express();
   app.disable("x-powered-by");
@@ -118,6 +142,7 @@ export function createApp(deps: AppDeps): express.Express {
       res.sendStatus(204);
       return;
     }
+    if (req.path.startsWith("/api/")) res.setHeader("X-Troonooz-UI", version);
     next();
   });
 
@@ -135,6 +160,7 @@ export function createApp(deps: AppDeps): express.Express {
     res.json({
       ok: true,
       app: "troonooz",
+      ui_version: version,
       demo: config.demo,
       model: config.demo ? "demo" : config.model,
       claude_configured: claudeConfigured,
@@ -398,35 +424,49 @@ export function createApp(deps: AppDeps): express.Express {
       res.status(404).json({ error: "not_found", message: "No such job." });
       return;
     }
+    // Every event carries its index as the SSE id. A reconnecting EventSource sends the last id it
+    // saw, so it resumes instead of replaying everything; once it has the final event, HTTP 204
+    // tells it to stop reconnecting for good.
+    const lastSeen = Number.parseInt(String(req.headers["last-event-id"] ?? ""), 10);
+    const from = Number.isFinite(lastSeen) && lastSeen >= 0 ? lastSeen + 1 : 0;
+    const total = job ? job.events.length : 1;
+    if ((!job || job.status !== "running") && from >= total) {
+      res.status(204).end();
+      return;
+    }
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
       "X-Accel-Buffering": "no",
     });
-    const send = (e: JobEvent) => res.write(`event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`);
+    const send = (e: JobEvent, index: number) => res.write(`id: ${index}\nevent: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`);
     if (!job) {
-      send({ type: "done", at: new Date().toISOString(), id });
+      send({ type: "done", at: new Date().toISOString(), id }, 0);
       res.end();
       return;
     }
-    for (const e of job.events) send(e);
+    job.events.slice(from).forEach((e, k) => send(e, from + k));
     if (job.status !== "running") {
       res.end();
       return;
     }
     const onEvent = (e: JobEvent) => {
-      send(e);
+      send(e, job.events.length - 1);
       if (e.type !== "progress") cleanup();
     };
     const ping = setInterval(() => res.write(": ping\n\n"), 15_000);
+    let closed = false;
     const cleanup = () => {
+      if (closed) return;
+      closed = true;
       clearInterval(ping);
       job.off("event", onEvent);
       res.end();
     };
     job.on("event", onEvent);
-    req.on("close", cleanup);
+    // The response's close (not the request's) is what signals the client went away.
+    res.on("close", cleanup);
   });
 
   app.get("/api/reports", requireAuth, (req, res) => {

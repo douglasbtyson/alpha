@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import sharp from "sharp";
 import { demoStreamer } from "../src/analysis/demo.js";
 import { KnowledgeBase } from "../src/knowledge/base.js";
-import { createApp } from "../src/server/app.js";
+import { createApp, uiVersion } from "../src/server/app.js";
+import { mkdir, writeFile } from "node:fs/promises";
 import { JobStore } from "../src/server/jobs.js";
 import { ReportStore } from "../src/server/store.js";
 import { photo, solidPng, testConfig } from "./helpers.js";
@@ -78,6 +79,34 @@ describe("HTTP API", () => {
 
     await request(app).delete(`/api/reports/${res.body.id}`).expect(204);
     await request(app).get(`/api/reports/${res.body.id}`).expect(404);
+  });
+
+  it("resumes event streams from Last-Event-ID and stops finished ones with 204", async () => {
+    const { app } = await makeApp();
+    const res = await request(app).post("/api/analyze").field("text", "Shark on the highway").expect(202);
+    const job = await waitForJob(res.body.id);
+    const last = job.events.length - 1;
+    const full = await request(app).get(`/api/jobs/${job.id}/events`).expect(200);
+    expect(full.text).toContain("id: 0\n");
+    expect(full.text).toContain(`id: ${last}\n`);
+    const resumed = await request(app).get(`/api/jobs/${job.id}/events`).set("Last-Event-ID", String(last - 1)).expect(200);
+    expect(resumed.text).not.toContain("id: 0\n");
+    expect(resumed.text.match(/^id: /gm)).toHaveLength(1);
+    // A client that already has the final event must not be fed it again (that caused a reconnect loop).
+    await request(app).get(`/api/jobs/${job.id}/events`).set("Last-Event-ID", String(last)).expect(204);
+  });
+
+  it("labels API responses with the web app's version", async () => {
+    const { app } = await makeApp();
+    const res = await request(app).get("/api/health").expect(200);
+    expect(res.headers["x-troonooz-ui"]).toMatch(/^[0-9a-f]{12}$/);
+    expect(res.body.ui_version).toBe(res.headers["x-troonooz-ui"]);
+    const ui = join(dir, "ui");
+    await mkdir(join(ui, "js"), { recursive: true });
+    await writeFile(join(ui, "app.js"), "a");
+    const before = uiVersion(ui);
+    await writeFile(join(ui, "js", "x.js"), "b");
+    expect(uiVersion(ui)).not.toBe(before);
   });
 
   it("reports input problems through the job", async () => {

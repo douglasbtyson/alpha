@@ -508,6 +508,18 @@ async function loadHealth() {
   }
 }
 
+window.addEventListener("troonooz:outdated", () => {
+  if (document.getElementById("outdated")) return;
+  const bar = h(
+    "div",
+    { id: "outdated", class: "banner", role: "alert" },
+    "troonooz was updated since this page was opened. ",
+    h("button", { type: "button", class: "linklike", onclick: () => location.reload() }, "Reload the page"),
+    " to use the new version.",
+  );
+  document.querySelector(".topbar").after(bar);
+});
+
 window.addEventListener("hashchange", route);
 loadHealth();
 route();

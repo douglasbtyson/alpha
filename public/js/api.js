@@ -33,8 +33,19 @@ export class ApiError extends Error {
   }
 }
 
+// The server's web-app version when this page loaded. If it changes, the server was
+// updated while the page stayed open, and the page's code may no longer match.
+let loadedVersion = null;
+function checkVersion(res) {
+  const v = res.headers.get("x-troonooz-ui");
+  if (!v) return;
+  if (loadedVersion === null) loadedVersion = v;
+  else if (v !== loadedVersion) window.dispatchEvent(new CustomEvent("troonooz:outdated"));
+}
+
 async function request(path, init = {}) {
   const res = await fetch(path, { ...init, headers: { ...authHeaders(), ...(init.headers ?? {}) } });
+  checkVersion(res);
   if (res.status === 204) return null;
   let body = null;
   try {
