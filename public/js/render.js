@@ -303,10 +303,15 @@ function renderResearch(record) {
   return h(
     "details",
     { class: "card research" },
-    h("summary", {}, `How this check was done · ${r.queries.length} search${r.queries.length === 1 ? "" : "es"}, ${r.fetched.length} page${r.fetched.length === 1 ? "" : "s"} read${record.zooms ? `, ${record.zooms} zoom-in${record.zooms === 1 ? "" : "s"}` : ""}`),
+    h(
+      "summary",
+      {},
+      `How this check was done · ${r.queries.length} search${r.queries.length === 1 ? "" : "es"}, ${r.fetched.length} page${r.fetched.length === 1 ? "" : "s"} read${record.zooms ? `, ${record.zooms} zoom-in${record.zooms === 1 ? "" : "s"}` : ""}${r.lookups?.length ? `, ${r.lookups.length} earlier-findings lookup${r.lookups.length === 1 ? "" : "s"}` : ""}`,
+    ),
     h(
       "div",
       { class: "research-body" },
+      r.lookups?.length ? h("div", {}, h("strong", {}, "Earlier findings searched: "), r.lookups.map((q, i) => [i ? ", " : "", h("code", {}, q)])) : null,
       r.queries.length ? h("div", {}, h("strong", {}, "Searches: "), r.queries.map((q, i) => [i ? ", " : "", h("code", {}, q)])) : null,
       r.fetched.length ? h("div", {}, h("strong", {}, "Pages read: "), r.fetched.map((f, i) => [i ? ", " : "", externalLink(f, hostOf(f))])) : null,
       h(
@@ -340,6 +345,13 @@ export function renderReport(root, record, actions) {
 
   const children = [
     record.demo ? h("div", { class: "demo-flag", role: "note" }, "Demo mode: this is a fixed sample report, not an analysis of what was submitted.") : null,
+    record.disputed
+      ? h(
+          "div",
+          { class: "demo-flag", role: "note" },
+          `A user flagged this result as possibly wrong (${new Date(record.disputed.at).toLocaleDateString()})${record.disputed.note ? `: \u201c${record.disputed.note}\u201d` : ""}. It won't be reused for other people's checks.`,
+        )
+      : null,
     h(
       "section",
       { class: "card verdict" },
@@ -405,6 +417,7 @@ export function renderReport(root, record, actions) {
       h("a", { class: "btn btn-primary", href: "#/" }, "Check something else"),
       h("button", { type: "button", class: "btn", onclick: actions.copyLink }, "Copy link"),
       h("button", { type: "button", class: "btn", onclick: actions.copySummary }, "Copy summary"),
+      h("button", { type: "button", class: "btn", onclick: actions.dispute, disabled: Boolean(record.disputed) }, record.disputed ? "Flagged as possibly wrong" : "Report a problem"),
       h("button", { type: "button", class: "btn", onclick: actions.remove }, "Delete"),
     ),
   ];

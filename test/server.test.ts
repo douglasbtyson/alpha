@@ -3,14 +3,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import sharp from "sharp";
 import { demoStreamer } from "../src/analysis/demo.js";
+import { KnowledgeBase } from "../src/knowledge/base.js";
 import { createApp } from "../src/server/app.js";
 import { JobStore } from "../src/server/jobs.js";
 import { ReportStore } from "../src/server/store.js";
-import { solidPng, testConfig } from "./helpers.js";
+import { photo, solidPng, testConfig } from "./helpers.js";
 
 let dir: string;
 let jobs: JobStore;
+let kb: KnowledgeBase | null = null;
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "troonooz-test-"));
@@ -18,14 +21,20 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   jobs.close();
+  kb?.close();
+  kb = null;
   await rm(dir, { recursive: true, force: true });
 });
 
-async function makeApp(overrides: Parameters<typeof testConfig>[0] = {}, withStreamer = true) {
+async function makeApp(overrides: Parameters<typeof testConfig>[0] = {}, withStreamer = true, withKnowledge = false) {
   const config = testConfig({ dataDir: dir, demo: true, ...overrides });
   const store = new ReportStore(dir);
   await store.init();
-  return { app: createApp({ config, streamer: withStreamer ? demoStreamer({ delayMs: 0 }) : null, store, jobs, log: () => {} }), store };
+  if (withKnowledge) kb = new KnowledgeBase(dir);
+  return {
+    app: createApp({ config, streamer: withStreamer ? demoStreamer({ delayMs: 0 }) : null, store, jobs, knowledge: kb, log: () => {} }),
+    store,
+  };
 }
 
 async function waitForJob(id: string) {
@@ -124,5 +133,65 @@ describe("HTTP API", () => {
     const home = await request(app).get("/").expect(200);
     expect(home.text).toContain("troonooz");
     expect(home.headers["content-security-policy"]).toContain("script-src 'self'");
+  });
+
+  describe("knowledge base", () => {
+    async function check(app: Parameters<typeof request>[0], image: Buffer, extra: Record<string, string> = {}) {
+      let r = request(app).post("/api/analyze").attach("files", image, "photo.jpg").field("source", "web");
+      for (const [k, v] of Object.entries(extra)) r = r.field(k, v);
+      const res = await r.expect(202);
+      return waitForJob(res.body.id);
+    }
+
+    it("reuses an earlier report for the same image, and can run a fresh check on request", async () => {
+      const { app } = await makeApp({}, true, true);
+      const img = await photo(7);
+      const first = await check(app, img);
+      expect(first.status).toBe("done");
+
+      const reshared = await sharp(img).resize(500).jpeg({ quality: 65 }).toBuffer();
+      const second = await check(app, reshared);
+      expect(second.status).toBe("matched");
+      expect(second.events.at(-1)).toMatchObject({ type: "match", match: { id: first.id, matched_on: ["image"], trust_score: 8 } });
+      const sse = await request(app).get(`/api/jobs/${second.id}/events`).expect(200);
+      expect(sse.text).toContain("event: match");
+
+      const rerun = await request(app).post(`/api/jobs/${second.id}/rerun`).expect(202);
+      const fresh = await waitForJob(rerun.body.id);
+      expect(fresh.status).toBe("done");
+      await request(app).get(`/api/reports/${fresh.id}`).expect(200);
+      await request(app).post(`/api/jobs/${first.id}/rerun`).expect(404); // only matched jobs can be re-run
+
+      const forced = await check(app, img, { reuse: "false" });
+      expect(forced.status).toBe("done");
+
+      const health = await request(app).get("/api/health").expect(200);
+      expect(health.body.knowledge).toMatchObject({ enabled: true, reports: 3 });
+    });
+
+    it("stops reusing a report once someone disputes it", async () => {
+      const { app, store } = await makeApp({}, true, true);
+      const img = await photo(8);
+      const first = await check(app, img);
+      await request(app).post(`/api/reports/${first.id}/dispute`).send({ note: "The photo is real" }).expect(204);
+      expect((await store.get(first.id))!.disputed).toMatchObject({ note: "The photo is real" });
+      expect((await check(app, img)).status).toBe("done");
+      await request(app).post("/api/reports/nope12345/dispute").send({}).expect(404);
+    });
+
+    it("forgets deleted reports", async () => {
+      const { app } = await makeApp({}, true, true);
+      const img = await photo(9);
+      const first = await check(app, img);
+      await request(app).delete(`/api/reports/${first.id}`).expect(204);
+      expect((await check(app, img)).status).toBe("done");
+    });
+
+    it("never matches featureless images", async () => {
+      const { app } = await makeApp({}, true, true);
+      const blank = await solidPng(400, 300);
+      await check(app, blank);
+      expect((await check(app, blank)).status).toBe("done");
+    });
   });
 });

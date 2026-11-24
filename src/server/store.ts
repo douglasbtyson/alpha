@@ -5,6 +5,7 @@ import type { SignalEntry, Thumbnail } from "../analysis/evidence.js";
 import type { AnalysisResult } from "../analysis/analyzer.js";
 import type { FocusArea, FinalReport } from "../analysis/schema.js";
 import type { InputSource } from "../analysis/input.js";
+import type { Fingerprint } from "../knowledge/fingerprint.js";
 
 /** Everything persisted about one finished analysis. */
 export interface AnalysisRecord {
@@ -23,6 +24,8 @@ export interface AnalysisRecord {
     page: { url: string; title: string } | null;
     thumbnails: Thumbnail[];
     notes: string[];
+    /** Content fingerprints for instant matching (absent on reports made before the feature). */
+    fingerprints?: Fingerprint[];
   };
   signals: SignalEntry[];
   domains: DomainInfo[];
@@ -31,6 +34,8 @@ export interface AnalysisRecord {
   usage: AnalysisResult["usage"];
   turns: number;
   zooms: number;
+  /** Set when a user flags the result as possibly wrong; disputed reports are never reused. */
+  disputed?: { at: string; note: string } | null;
 }
 
 export interface RecordSummary {
@@ -43,6 +48,7 @@ export interface RecordSummary {
   content_type: FinalReport["content"]["type"];
   platform: string;
   thumbnail: string | null;
+  disputed: boolean;
 }
 
 export const ID_RE = /^[A-Za-z0-9_-]{8,40}$/;
@@ -58,6 +64,7 @@ function summarize(r: AnalysisRecord): RecordSummary {
     content_type: r.report.content.type,
     platform: r.report.content.platform,
     thumbnail: r.input.thumbnails.find((t) => t.dataUrl)?.dataUrl ?? null,
+    disputed: Boolean(r.disputed),
   };
 }
 
@@ -110,6 +117,23 @@ export class ReportStore {
     await rm(join(this.dir, `${id}.json`), { force: true });
     this.index.delete(id);
     return true;
+  }
+
+  summary(id: string): RecordSummary | null {
+    return this.index.get(id) ?? null;
+  }
+
+  ids(): string[] {
+    return [...this.index.keys()];
+  }
+
+  /** Record a user's report that the result looks wrong. */
+  async markDisputed(id: string, note: string): Promise<AnalysisRecord | null> {
+    const rec = await this.get(id);
+    if (!rec) return null;
+    rec.disputed = { at: new Date().toISOString(), note: note.slice(0, 1000) };
+    await this.save(rec);
+    return rec;
   }
 
   list(limit = 50): RecordSummary[] {

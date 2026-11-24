@@ -7,6 +7,8 @@ import { describeSignals, extractImageSignals } from "./metadata.js";
 import { focusInstruction } from "./prompts.js";
 import type { FocusArea } from "./schema.js";
 import { describeProbe, extractVideoFrames } from "./video.js";
+import { imageHash, imagePrint, textHash, type Fingerprint } from "../knowledge/fingerprint.js";
+import { canonicalUrl } from "./grounding.js";
 
 type ContentBlock = Anthropic.Beta.BetaContentBlockParam;
 
@@ -54,6 +56,12 @@ export interface PreparedEvidence {
   page: PageCapture | null;
   notes: string[];
   thumbnails: Thumbnail[];
+  /** What identifies this submission's content, for instant matches and prior findings. */
+  fingerprints: Fingerprint[];
+  /** False when some item couldn't be fingerprinted, so an instant match would be incomplete. */
+  matchable: boolean;
+  /** Formatted findings from earlier checks related to this material (set by the server). */
+  priorFindings: string | null;
 }
 
 export class InputError extends Error {}
@@ -93,8 +101,21 @@ export async function prepareEvidence(input: AnalysisInput, config: Config, prog
   const images: EvidenceImage[] = [];
   const signals: SignalEntry[] = [];
   const thumbnails: Thumbnail[] = [];
+  const fingerprints: Fingerprint[] = [];
+  let matchable = true;
   let imgN = 0;
   let vidN = 0;
+
+  const printImage = async (id: string, buf: Buffer) => {
+    const p = await imagePrint(id, buf).catch(() => null);
+    if (p) fingerprints.push(p);
+    else matchable = false; // too uniform (or unreadable) to identify
+  };
+  const printVideo = async (id: string, frames: Buffer[]) => {
+    const hashes = (await Promise.all(frames.map((f) => imageHash(f).catch(() => null)))).filter((h): h is string => h !== null);
+    if (hashes.length) fingerprints.push({ ref: id, kind: "video", value: hashes.join(",") });
+    else matchable = false;
+  };
 
   const addImage = async (file: UploadedFile, label: string, maxEdge?: number): Promise<string | null> => {
     const id = `img${++imgN}`;
@@ -115,6 +136,7 @@ export async function prepareEvidence(input: AnalysisInput, config: Config, prog
       const sig = await extractImageSignals(file.buffer, info);
       signals.push({ id, label, summary: describeSignals(sig), provenance: sig.provenance, notes: sig.notes });
       thumbnails.push({ id, label, kind: "image", dataUrl: await thumbnail(file.buffer), url: null });
+      await printImage(id, file.buffer);
       return id;
     } catch (err) {
       imgN--;
@@ -169,6 +191,7 @@ export async function prepareEvidence(input: AnalysisInput, config: Config, prog
       provenance: [],
       notes: [],
     });
+    await printVideo(vid, frames.map((f) => f.buffer));
     thumbnails.push({ id: vid, label: `Video "${video}"`, kind: "video", dataUrl: firstThumb, url: null });
   }
 
@@ -193,6 +216,7 @@ export async function prepareEvidence(input: AnalysisInput, config: Config, prog
         });
       }
       signals.push({ id: vid, label: `Video "${f.name}"`, summary: describeProbe(probe), provenance: probe.provenance, notes: probe.notes });
+      await printVideo(vid, frames.map((fr) => fr.buffer));
       thumbnails.push({ id: vid, label: `Video "${f.name}"`, kind: "video", dataUrl: await thumbnail(frames[0]!.buffer), url: null });
     } catch (err) {
       vidN--;
@@ -207,6 +231,8 @@ export async function prepareEvidence(input: AnalysisInput, config: Config, prog
     const host = new URL(url).hostname;
     remoteImages.push({ id, url, label: `Image from ${host} (fetched by URL; no metadata or zoom available)` });
     thumbnails.push({ id, label: `Image from ${host}`, kind: "remote", dataUrl: null, url });
+    const key = canonicalUrl(url);
+    if (key) fingerprints.push({ ref: id, kind: "url", value: key });
   }
 
   const totalImages = images.length + remoteImages.length;
@@ -233,16 +259,49 @@ export async function prepareEvidence(input: AnalysisInput, config: Config, prog
     );
   }
 
-  let domains: DomainInfo[] = [];
-  if (config.rdap) {
-    const candidates = candidateDomains([page?.url ?? "", page?.canonical ?? "", page?.link_url ?? "", ...urls]);
-    if (candidates.length) {
-      progress(`Checking domain registration for ${candidates.join(", ")}`);
-      domains = await Promise.all(candidates.map((d) => lookupDomain(d)));
-    }
-  }
+  urls.forEach((u, i) => {
+    const key = canonicalUrl(u);
+    if (key) fingerprints.push({ ref: `link${i + 1}`, kind: "url", value: key });
+  });
+  // Short notes ("is this real?") are context, not content, so they don't take part in matching.
+  const textKey = text ? textHash(input.text) : null;
+  if (textKey) fingerprints.push({ ref: "text", kind: "text", value: textKey });
+  const selectionKey = page?.capture_mode === "selection" && page.selection ? textHash(input.page?.selection ?? "") : null;
+  if (selectionKey) fingerprints.push({ ref: "selection", kind: "text", value: selectionKey });
 
-  return { images, remoteImages, signals, domains, text, urls, page, notes, thumbnails };
+  return {
+    images,
+    remoteImages,
+    signals,
+    domains: [],
+    text,
+    urls,
+    page,
+    notes,
+    thumbnails,
+    fingerprints,
+    matchable: matchable && fingerprints.length > 0,
+    priorFindings: null,
+  };
+}
+
+/** Registrable domains this submission points at (page, links), platforms excluded. */
+export function evidenceDomains(ev: PreparedEvidence): string[] {
+  return candidateDomains([ev.page?.url ?? "", ev.page?.canonical ?? "", ev.page?.link_url ?? "", ...ev.urls]);
+}
+
+/** RDAP registration data for the submission's domains, through an optional cache. */
+export async function resolveDomains(
+  ev: PreparedEvidence,
+  config: Config,
+  progress: ProgressFn = () => {},
+  lookup: (domain: string) => Promise<DomainInfo> = (d) => lookupDomain(d),
+): Promise<DomainInfo[]> {
+  if (!config.rdap) return [];
+  const candidates = evidenceDomains(ev);
+  if (!candidates.length) return [];
+  progress(`Checking domain registration for ${candidates.join(", ")}`);
+  return Promise.all(candidates.map((d) => lookup(d)));
 }
 
 function pageBlock(page: PageCapture): string {
@@ -306,6 +365,16 @@ export function buildUserContent(
     blocks.push({
       type: "text",
       text: `Automated signals (deterministic checks run before your analysis; metadata can be stripped or forged):\n${signalLines.join("\n")}`,
+    });
+  }
+
+  if (ev.priorFindings) {
+    blocks.push({
+      type: "text",
+      text:
+        "Prior troonooz findings related to this material, from earlier checks on this server. They are dated leads, not verified facts: " +
+        "reuse what is recent and well sourced, and re-verify anything stale, thin, disputed, or about a developing story.\n" +
+        ev.priorFindings,
     });
   }
 

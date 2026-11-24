@@ -1,18 +1,34 @@
 import { EventEmitter } from "node:events";
 import { randomBytes } from "node:crypto";
 import type { ProgressEvent } from "../analysis/analyzer.js";
+import type { PreparedEvidence } from "../analysis/evidence.js";
+import type { AnalysisInput } from "../analysis/input.js";
+
+/** An earlier report that already covers this submission. */
+export interface MatchInfo {
+  id: string;
+  created_at: string;
+  matched_on: string[];
+  headline: string;
+  rating: string;
+  trust_score: number;
+  thumbnail: string | null;
+}
 
 export type JobEvent =
   | { type: "progress"; at: string; event: ProgressEvent }
   | { type: "done"; at: string; id: string }
+  | { type: "match"; at: string; match: MatchInfo }
   | { type: "error"; at: string; code: string; message: string };
 
-export type JobStatus = "running" | "done" | "error";
+export type JobStatus = "running" | "done" | "matched" | "error";
 
 export class Job extends EventEmitter {
   readonly events: JobEvent[] = [];
   status: JobStatus = "running";
   finishedAt: number | null = null;
+  /** Kept for matched jobs so the user can ask for a fresh check without re-uploading. */
+  retained: { input: AnalysisInput; evidence: PreparedEvidence } | null = null;
 
   constructor(
     readonly id: string,
@@ -36,6 +52,13 @@ export class Job extends EventEmitter {
     this.status = "done";
     this.finishedAt = Date.now();
     this.push({ type: "done", at: new Date().toISOString(), id: this.id });
+  }
+
+  matched(match: MatchInfo, retained: { input: AnalysisInput; evidence: PreparedEvidence }): void {
+    this.status = "matched";
+    this.finishedAt = Date.now();
+    this.retained = retained;
+    this.push({ type: "match", at: new Date().toISOString(), match });
   }
 
   fail(code: string, message: string): void {

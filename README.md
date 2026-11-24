@@ -8,6 +8,8 @@
 | **Vendor trustworthiness** | Identifies the seller, store, or advertiser; looks up reviews, complaints, regulator warnings, and domain age; spots scam patterns like fake discounts, countdown urgency, and payment methods with no buyer protection. |
 | **Image & video authenticity** | Zooms into fine detail for signs of AI generation or editing, spots fabricated post and article screenshots, reads embedded provenance metadata (C2PA, IPTC AI labels, generator settings), samples frames from video, and searches for the original context. |
 
+troonooz also remembers what it has learned. If someone checks content that was already checked, they get the earlier result instantly at no cost. Findings about claims, sellers, accounts, and images also carry over to new checks (see [Shared knowledge](#shared-knowledge)).
+
 Every report has an overall trust score (0–100), a verdict and confidence level, red flags, per-section findings, recommendations, cited sources, and stated limitations. Each cited source is checked against the URLs the research actually returned, and any source that wasn't among them is flagged.
 
 There are two ways to submit content:
@@ -17,7 +19,7 @@ There are two ways to submit content:
 
 ## Quick start
 
-Requires Node.js 20.12+ (22 recommended). `ffmpeg` is optional; it enables server-side frame extraction for raw video uploads.
+Requires Node.js 22.13+ (it uses Node's built-in SQLite). `ffmpeg` is optional; it enables server-side frame extraction for raw video uploads.
 
 ```bash
 npm install
@@ -80,9 +82,53 @@ Key files:
 | `src/analysis/images.ts` | Resizing, tiling, zoom crops (sharp) |
 | `src/analysis/metadata.ts` | Provenance and EXIF signals |
 | `src/analysis/grounding.ts` | Source-URL ledger and grounding check |
+| `src/knowledge/fingerprint.ts` | Image/video/link/text fingerprints and the two-stage image comparison |
+| `src/knowledge/base.ts` | SQLite knowledge base: instant matches, entity findings, full-text search, RDAP cache |
+| `src/knowledge/findings.ts` | Extracting entities from reports and formatting them for Claude |
 | `src/server/app.ts` | HTTP API, job runner, SSE |
 | `public/` | Web app (vanilla JS, no build step) |
 | `extension/` | Chrome MV3 extension |
+
+## Shared knowledge
+
+Every finished report feeds a SQLite database at `data/knowledge.sqlite`. This database is an index built from the JSON reports: delete it and it is rebuilt from them at the next start. It has two layers.
+
+**1. Instant matches.** Before calling Claude, troonooz fingerprints each item in the submission and looks for an earlier report that covered the same content:
+
+| Item | Fingerprint | Survives | Doesn't survive |
+|---|---|---|---|
+| Image | 256-bit difference hash to shortlist candidates, then a 320px greyscale thumbnail comparison to confirm | Resizing, recompression, format changes, brightness shifts | Cropping; any changed word, number, or price |
+| Video | Hashes of the sampled frames (at least 75% must match) | Re-encoding | Different clips or capture timing |
+| Link | Canonical URL (no tracking parameters, `www.`, or fragment) | Tracking codes, http vs https | Different articles |
+| Text | SHA-256 of the normalized text (40+ characters; shorter notes are ignored) | Case, punctuation, whitespace | Any wording change |
+
+An earlier report is reused only when **every** fingerprinted item matches and all of the following hold:
+- It is recent enough: 24 hours for news, 14 days for sellers, 30 days for media-only checks.
+- Nobody has flagged it as wrong.
+- It used web research if the new request does.
+- It covered the requested focus.
+
+If an item can't be fingerprinted (for example a blank image), no reuse happens. The user sees an **Already checked** card with the earlier result and a **Check again anyway** button, which runs a fresh check without re-uploading. Screenshots of the same post taken on two different phones won't match, because each crops differently; the second layer handles that case.
+
+Why two stages for images: a perceptual hash alone can't tell apart two posts in the same app layout. The text is a sliver of the image and the rest is identical white space, so in testing two different posts were 4 bits apart out of 256. The thumbnail check catches a single changed word or price.
+
+**2. Entity findings.** Each report's conclusions are stored as entities:
+- **claims:** verdict, explanation, sources
+- **sellers:** keyed by domain
+- **accounts and outlets**
+- **media:** keyed by fingerprint
+
+Only conclusions are stored, never screenshots or who submitted them, and senders of private messages are not stored as accounts.
+
+New checks use these findings in two ways:
+- **Automatically:** findings tied to the same content or seller domain are added to Claude's evidence as dated "Prior troonooz findings".
+- **On demand:** Claude gets a `lookup_prior_findings` tool (full-text search) and is told to use it before web searching for the main claims, sellers, and accounts.
+
+Findings are presented as dated leads with agreement counts (for example "seen in 3 checks: contradicted ×3"). Claude is told to re-verify anything stale, thin, disputed, or about a developing story.
+
+**Report a problem.** The button on each report marks it as disputed. A disputed report is never reused for an instant match, and its findings carry a warning when they come up in later checks.
+
+The database also caches domain-registration (RDAP) lookups for 7 days. Turn the whole feature off with `TROONOOZ_KNOWLEDGE=off`.
 
 ### Design choices worth knowing
 
@@ -107,6 +153,7 @@ All settings are environment variables; `.env` is loaded automatically. See `.en
 | `TROONOOZ_WEB_FETCH_MAX_USES` | `5` | Page fetches per check (0 disables) |
 | `TROONOOZ_MAX_ZOOMS` | `6` | `inspect_region` calls per check (0 disables) |
 | `TROONOOZ_RDAP` | `on` | Domain-age lookups via rdap.org |
+| `TROONOOZ_KNOWLEDGE` | `on` | Shared knowledge: instant matches and earlier findings |
 | `TROONOOZ_MAX_FILES` / `_MAX_FILE_MB` | `20` / `100` | Upload limits |
 | `TROONOOZ_MAX_IMAGES` | `40` | Images sent to Claude per check (after tiling and frame sampling) |
 | `TROONOOZ_VIDEO_FRAMES` | `8` | Frames sampled per server-processed video |
@@ -128,13 +175,16 @@ All settings are environment variables; `.env` is loaded automatically. See `.en
 | `page` | JSON | Browser capture: `{url, title, site_name, description, author, published, canonical, lang, selection, text, capture_mode}` |
 | `focus` | JSON array | Any of `news`, `vendor`, `media`. Empty means check everything relevant. |
 | `web` | `true`/`false` | Live web research (default `true`) |
+| `reuse` | `true`/`false` | Allow an instant match with an earlier report (default `true`) |
 | `source` | `web`/`extension`/`api` | Where the request came from |
 
 Other endpoints:
 
-- `GET /api/jobs/:id/events` is a Server-Sent Events stream of `progress` events (`status`, `thinking`, `search`, `fetch`, `zoom`, `writing`, `fallback`) that ends with `done` or `error`. Because `EventSource` can't send headers, this endpoint also accepts the token as `?token=`.
+- `GET /api/jobs/:id/events` is a Server-Sent Events stream of `progress` events (`status`, `thinking`, `search`, `fetch`, `lookup`, `zoom`, `writing`, `fallback`) that ends with `done`, `match` (an earlier report covers this content), or `error`. Because `EventSource` can't send headers, this endpoint also accepts the token as `?token=`.
 - `GET /api/reports/:id` returns the full record (report, inputs, thumbnails, automated signals, research log, token usage). `GET /api/reports` lists recent reports, and `DELETE /api/reports/:id` deletes one.
-- `GET /api/health` returns the server status.
+- `POST /api/jobs/:id/rerun` runs a fresh check on content from a matched job, without re-uploading it.
+- `POST /api/reports/:id/dispute` with `{"note": "..."}` flags a report as possibly wrong.
+- `GET /api/health` returns the server status, including knowledge-base counts.
 
 Example:
 
@@ -146,6 +196,7 @@ curl -F files=@post.png -F 'focus=["news"]' http://localhost:8787/api/analyze
 
 - Submitted content and screenshots go to the Anthropic API for analysis. With RDAP on, the domain names of submitted links also go to rdap.org.
 - Reports, including small thumbnails, are stored as JSON files in `TROONOOZ_DATA_DIR` on your server.
+- With shared knowledge on, one user's check can inform another user's result on the same server: instant matches show the earlier report, and findings (claims, sellers, accounts, media verdicts) are reused. The History page also lists every check on the server. Keep that in mind before letting people you don't know use one server.
 - The extension sends data only when you click one of its actions, and only to the server address you configured.
 - The server listens on localhost by default. Before exposing it, set `TROONOOZ_API_TOKEN`, because every check spends API credits.
 - The web UI renders all model output and page content as text (never as HTML) under a strict Content-Security-Policy, and only http(s) links are made clickable.
@@ -161,7 +212,7 @@ curl -F files=@post.png -F 'focus=["news"]' http://localhost:8787/api/analyze
 ## Development
 
 ```bash
-npm test            # vitest: schema, metadata, imaging, grounding, analyzer loop (scripted model), HTTP API, ffmpeg
+npm test            # vitest: schema, metadata, imaging, fingerprints, knowledge base, grounding, analyzer loop (scripted model), HTTP API, ffmpeg
 npm run typecheck
 npm run build
 ```

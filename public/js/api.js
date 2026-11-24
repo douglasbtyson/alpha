@@ -55,6 +55,13 @@ export const api = {
   reports: () => request("/api/reports?limit=100"),
   deleteReport: (id) => request(`/api/reports/${encodeURIComponent(id)}`, { method: "DELETE" }),
   job: (id) => request(`/api/jobs/${encodeURIComponent(id)}`),
+  rerun: (id) => request(`/api/jobs/${encodeURIComponent(id)}/rerun`, { method: "POST" }),
+  dispute: (id, note) =>
+    request(`/api/reports/${encodeURIComponent(id)}/dispute`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ note }),
+    }),
 };
 
 /**
@@ -67,6 +74,11 @@ export function subscribe(id, handlers) {
   const es = new EventSource(url);
   let finished = false;
   es.addEventListener("progress", (e) => handlers.progress?.(JSON.parse(e.data)));
+  es.addEventListener("match", (e) => {
+    finished = true;
+    es.close();
+    handlers.match?.(JSON.parse(e.data));
+  });
   es.addEventListener("done", (e) => {
     finished = true;
     es.close();

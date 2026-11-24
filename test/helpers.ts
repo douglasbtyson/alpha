@@ -18,6 +18,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     webFetchMaxUses: 5,
     maxZooms: 6,
     rdap: false,
+    knowledge: true,
     dataDir: "data",
     apiToken: null,
     demo: false,
@@ -87,4 +88,32 @@ export async function solidPng(width: number, height: number, color = "#3366cc")
 
 export async function solidJpeg(width: number, height: number, color = "#3366cc"): Promise<Buffer> {
   return sharp({ create: { width, height, channels: 3, background: color } }).jpeg().toBuffer();
+}
+
+/** A photo-like image: random overlapping circles (deterministic per seed). */
+export async function photo(seed: number, width = 800, height = 600): Promise<Buffer> {
+  let s = seed;
+  const rnd = () => (s = (s * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const circles = Array.from(
+    { length: 30 },
+    () =>
+      `<circle cx="${rnd() * width}" cy="${rnd() * height}" r="${20 + rnd() * 150}" fill="rgb(${(rnd() * 255) | 0},${(rnd() * 255) | 0},${(rnd() * 255) | 0})"/>`,
+  ).join("");
+  return sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="100%" height="100%" fill="#888"/>${circles}</svg>`))
+    .png()
+    .toBuffer();
+}
+
+/** A fake social-post screenshot: same layout every time, only the text and price differ. */
+export async function postScreenshot(text: string, price = "$9.99"): Promise<Buffer> {
+  const lines = (text.match(/.{1,40}/g) ?? [])
+    .map((l, i) => `<text x="30" y="${120 + i * 34}" font-size="26" font-family="sans-serif">${l}</text>`)
+    .join("");
+  return sharp(
+    Buffer.from(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="1170" height="1400"><rect width="100%" height="100%" fill="#fff"/><circle cx="60" cy="50" r="28" fill="#1d9bf0"/><text x="100" y="58" font-size="26" font-weight="bold" font-family="sans-serif">Storm Watch Daily</text>${lines}<text x="30" y="560" font-size="40" font-family="sans-serif">${price}</text><rect x="30" y="600" width="1110" height="620" rx="20" fill="#7aa"/></svg>`,
+    ),
+  )
+    .png()
+    .toBuffer();
 }

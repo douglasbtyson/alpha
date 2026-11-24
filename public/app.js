@@ -204,6 +204,8 @@ async function submitCheck(form) {
 }
 
 /* ---------------- Report view ---------------- */
+const MATCH_WORDS = { image: "image", video: "video", url: "link", text: "text" };
+
 function stepFor(event) {
   switch (event.type) {
     case "status":
@@ -218,6 +220,8 @@ function stepFor(event) {
       return ["\u{1F4C4}", `Reading ${hostOf(event.url)}`];
     case "zoom":
       return ["\u{1F50D}", `Zoomed into ${event.image}: ${event.reason}`];
+    case "lookup":
+      return ["\u{1F4DA}", `Checked earlier findings: \u201c${event.query}\u201d`];
     case "writing":
       return ["✍", "Writing the report"];
     case "fallback":
@@ -243,6 +247,43 @@ function renderReportView(id) {
     errorBox.replaceChildren(h("h2", {}, title), h("p", {}, message), h("a", { class: "btn", href: "#/" }, "Try again"));
   };
 
+  const showMatch = (m) => {
+    progress.hidden = true;
+    const box = document.getElementById("match");
+    const tone = scoreTone(m.trust_score, m.rating);
+    const [label] = OVERALL[m.rating] ?? [m.rating];
+    const what = [...new Set(m.matched_on.map((k) => MATCH_WORDS[k] ?? k))].join(" and ");
+    const rerun = h("button", { type: "button", class: "btn" }, "Check again anyway");
+    rerun.addEventListener("click", async () => {
+      rerun.disabled = true;
+      rerun.textContent = "Starting\u2026";
+      try {
+        const res = await api.rerun(id);
+        location.hash = `#/report/${res.id}`;
+      } catch (err) {
+        rerun.textContent = err.message;
+      }
+    });
+    box.hidden = false;
+    box.replaceChildren(
+      h("h2", {}, "Already checked"),
+      h("p", {}, `This is the same ${what} as a check from ${timeAgo(m.created_at)}. Here is that result, at no cost and with no wait.`),
+      h(
+        "a",
+        { class: "match-report", href: `#/report/${m.id}` },
+        m.thumbnail ? h("img", { class: "history-thumb", src: m.thumbnail, alt: "" }) : h("div", { class: "history-thumb" }),
+        h("div", {}, h("p", { class: "history-title" }, m.headline), h("p", { class: "history-sub" }, label)),
+        h("span", { class: `score-pill tone-${tone}`, "aria-label": `Trust score ${m.trust_score}` }, m.trust_score),
+      ),
+      h("div", { class: "report-actions" }, h("a", { class: "btn btn-primary", href: `#/report/${m.id}` }, "View that report"), rerun),
+      h(
+        "p",
+        { class: "muted match-note" },
+        "Earlier results are reused only when everything you submitted matches, the earlier check is recent enough, and nobody has flagged it as wrong. Things change, so check again if it matters.",
+      ),
+    );
+  };
+
   const showReport = async () => {
     try {
       const record = await api.report(id);
@@ -264,6 +305,19 @@ function renderReportView(id) {
           if (!confirm("Delete this report? This cannot be undone.")) return;
           await api.deleteReport(id);
           location.hash = "#/history";
+        },
+        dispute: async (e) => {
+          const note = prompt("What looks wrong? (optional) This result will no longer be reused, and its findings will be marked as disputed.");
+          if (note === null) return;
+          const button = e.currentTarget;
+          button.disabled = true;
+          try {
+            await api.dispute(id, note);
+            button.textContent = "Flagged \u2014 thanks";
+          } catch (err) {
+            button.disabled = false;
+            button.textContent = err.message;
+          }
         },
       });
     } catch (err) {
@@ -296,6 +350,10 @@ function renderReportView(id) {
         clearInterval(timer);
         showReport();
       },
+      match: (e) => {
+        clearInterval(timer);
+        showMatch(e.match);
+      },
       error: (e) => {
         clearInterval(timer);
         showError("The check could not be completed", e.message);
@@ -313,6 +371,7 @@ function renderReportView(id) {
     .then((job) => {
       if (cancelled) return;
       if (job.status === "done") showReport();
+      else if (job.status === "matched") showMatch(job.events.find((e) => e.type === "match").match);
       else if (job.status === "error") {
         const err = job.events.find((e) => e.type === "error");
         showError("The check could not be completed", err?.message ?? "Unknown error");

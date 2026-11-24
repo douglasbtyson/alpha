@@ -6,6 +6,7 @@ import { anthropicStreamer, type Streamer } from "./analysis/analyzer.js";
 import { demoStreamer } from "./analysis/demo.js";
 import { hasFfmpeg } from "./analysis/video.js";
 import { loadConfig } from "./config.js";
+import { KnowledgeBase } from "./knowledge/base.js";
 import { createApp } from "./server/app.js";
 import { JobStore } from "./server/jobs.js";
 import { ReportStore } from "./server/store.js";
@@ -36,7 +37,13 @@ if (config.demo) {
 const store = new ReportStore(config.dataDir);
 await store.init();
 const jobs = new JobStore();
-const app = createApp({ config, streamer, claudeConfigured, store, jobs });
+let knowledge: KnowledgeBase | null = null;
+if (config.knowledge) {
+  knowledge = new KnowledgeBase(config.dataDir);
+  const added = await knowledge.syncFrom(store);
+  if (added) console.log(`Knowledge base: indexed ${added} existing report${added === 1 ? "" : "s"}.`);
+}
+const app = createApp({ config, streamer, claudeConfigured, store, jobs, knowledge });
 
 app.listen(config.port, config.host, async () => {
   const url = `http://${config.host === "0.0.0.0" ? "localhost" : config.host}:${config.port}`;

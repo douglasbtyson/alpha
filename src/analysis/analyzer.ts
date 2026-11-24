@@ -25,6 +25,7 @@ export type ProgressEvent =
   | { type: "fetch"; url: string }
   | { type: "results"; count: number }
   | { type: "zoom"; image: string; reason: string }
+  | { type: "lookup"; query: string }
   | { type: "writing" }
   | { type: "fallback"; from: string; to: string };
 
@@ -75,15 +76,25 @@ export interface AnalysisResult {
   model: string;
   turns: number;
   zooms: number;
-  research: { queries: string[]; fetched: string[]; urlsSeen: number; unseenCitedUrls: string[] };
+  research: { queries: string[]; fetched: string[]; lookups?: string[]; urlsSeen: number; unseenCitedUrls: string[] };
   usage: UsageTotals;
 }
+
+/** Access to findings from earlier checks (the knowledge base), if enabled. */
+export interface KnowledgeAccess {
+  search(query: string, kind: LookupKind): { text: string; urls: string[]; count: number };
+  /** Source URLs cited by the prior findings already in the evidence. */
+  priorUrls: string[];
+}
+
+export type LookupKind = "any" | "claim" | "vendor" | "source" | "media";
 
 export interface AnalyzeOptions {
   focus: FocusArea[];
   webResearch: boolean;
   source: string;
   today?: string;
+  knowledge?: KnowledgeAccess;
 }
 
 const MAX_TURNS = 16;
@@ -93,6 +104,13 @@ const MAX_TOKENS = 64_000;
 
 const SUBMIT_TOOL = "submit_report";
 const ZOOM_TOOL = "inspect_region";
+const LOOKUP_TOOL = "lookup_prior_findings";
+const MAX_LOOKUPS = 6;
+
+const LookupInput = z.object({
+  query: z.string(),
+  kind: z.enum(["any", "claim", "vendor", "source", "media"]),
+});
 
 const ZoomInput = z.object({
   image_id: z.string(),
@@ -103,13 +121,35 @@ const ZoomInput = z.object({
   reason: z.string(),
 });
 
-function buildTools(config: Config, webResearch: boolean, zoomable: boolean): ToolUnion[] {
+function buildTools(config: Config, webResearch: boolean, zoomable: boolean, knowledge: boolean): ToolUnion[] {
   const tools: ToolUnion[] = [];
   if (webResearch && config.webSearchMaxUses > 0) {
     tools.push({ type: "web_search_20260209", name: "web_search", max_uses: config.webSearchMaxUses });
   }
   if (webResearch && config.webFetchMaxUses > 0) {
     tools.push({ type: "web_fetch_20260209", name: "web_fetch", max_uses: config.webFetchMaxUses });
+  }
+  if (knowledge) {
+    tools.push({
+      name: LOOKUP_TOOL,
+      description:
+        "Search findings from earlier troonooz checks on this server: claims already fact-checked, sellers and websites, " +
+        "accounts and news outlets, and images or videos. Each result gives the verdict it received, when it was checked, " +
+        "and how many checks agree. Results are dated leads, not verified facts. Use this before web searching for the " +
+        "main claims, sellers, and accounts in the material. Query with distinctive keywords (names, handles, domains, " +
+        "the key words of a claim), not whole sentences.",
+      strict: true,
+      eager_input_streaming: true,
+      input_schema: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Distinctive keywords, a domain, or an account name." },
+          kind: { type: "string", enum: ["any", "claim", "vendor", "source", "media"], description: "Restrict to one kind of finding, or any." },
+        },
+        required: ["query", "kind"],
+        additionalProperties: false,
+      },
+    });
   }
   if (zoomable && config.maxZooms > 0) {
     tools.push({
@@ -170,7 +210,7 @@ export async function analyze(
   progress: (e: ProgressEvent) => void = () => {},
 ): Promise<AnalysisResult> {
   const zoomable = evidence.images.length > 0;
-  const tools = buildTools(config, options.webResearch, zoomable);
+  const tools = buildTools(config, options.webResearch, zoomable, options.knowledge !== undefined);
   const today = options.today ?? new Date().toISOString().slice(0, 10);
   const imagesById = new Map<string, EvidenceImage>(evidence.images.map((i) => [i.id, i]));
 
@@ -210,6 +250,8 @@ export async function analyze(
     web_search_requests: 0,
     web_fetch_requests: 0,
   };
+  for (const u of options.knowledge?.priorUrls ?? []) ledger.add(u);
+  const lookups: string[] = [];
   let nudges = 0;
   let invalidReports = 0;
   let zooms = 0;
@@ -279,6 +321,25 @@ export async function analyze(
     }
   };
 
+  const runLookup = (block: ToolUse): ToolResult => {
+    const parsed = LookupInput.safeParse(block.input);
+    if (!parsed.success || !options.knowledge) {
+      return { type: "tool_result", tool_use_id: block.id, is_error: true, content: parsed.success ? "Lookups are not available." : `Invalid input: ${zodSummary(parsed.error)}` };
+    }
+    if (lookups.length >= MAX_LOOKUPS) {
+      return { type: "tool_result", tool_use_id: block.id, is_error: true, content: "Lookup limit reached for this analysis. Continue with web research or submit your report." };
+    }
+    lookups.push(parsed.data.query);
+    progress({ type: "lookup", query: parsed.data.query });
+    const found = options.knowledge.search(parsed.data.query, parsed.data.kind);
+    for (const u of found.urls) ledger.add(u);
+    return {
+      type: "tool_result",
+      tool_use_id: block.id,
+      content: found.count ? `${found.count} earlier finding(s):\n${found.text}` : "No earlier findings matched this query.",
+    };
+  };
+
   for (let turn = 1; turn <= MAX_TURNS; turn++) {
     const msg = await streamer({ ...baseParams, messages }, hooks);
 
@@ -321,7 +382,7 @@ export async function analyze(
           model: msg.model,
           turns: turn,
           zooms,
-          research: { queries: ledger.queries, fetched: ledger.fetched, urlsSeen: ledger.size, unseenCitedUrls: unseen },
+          research: { queries: ledger.queries, fetched: ledger.fetched, lookups, urlsSeen: ledger.size, unseenCitedUrls: unseen },
           usage,
         };
       }
@@ -357,7 +418,9 @@ export async function analyze(
           async (t): Promise<ToolResult> =>
             t.name === ZOOM_TOOL
               ? runZoom(t)
-              : { type: "tool_result", tool_use_id: t.id, is_error: true, content: `Unknown tool "${t.name}".` },
+              : t.name === LOOKUP_TOOL
+                ? runLookup(t)
+                : { type: "tool_result", tool_use_id: t.id, is_error: true, content: `Unknown tool "${t.name}".` },
         ),
       );
       if (turn >= MAX_TURNS - 2) results.push({ type: "text", text: NUDGE_SUBMIT });

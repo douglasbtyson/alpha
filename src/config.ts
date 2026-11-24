@@ -21,6 +21,8 @@ export interface Config {
   maxZooms: number;
   /** Look up domain registration age via RDAP. */
   rdap: boolean;
+  /** Shared knowledge base: instant matches and findings from earlier checks. */
+  knowledge: boolean;
   /** Where finished reports are persisted as JSON. */
   dataDir: string;
   /** Optional bearer token required on /api requests. */
@@ -71,6 +73,7 @@ export function loadConfig(): Config {
     webFetchMaxUses: int("TROONOOZ_WEB_FETCH_MAX_USES", 5),
     maxZooms: int("TROONOOZ_MAX_ZOOMS", 6),
     rdap: bool("TROONOOZ_RDAP", true),
+    knowledge: bool("TROONOOZ_KNOWLEDGE", true),
     dataDir: process.env.TROONOOZ_DATA_DIR ?? "data",
     apiToken: process.env.TROONOOZ_API_TOKEN?.trim() || null,
     demo: bool("TROONOOZ_DEMO", false),

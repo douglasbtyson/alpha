@@ -4,8 +4,10 @@ import multer from "multer";
 import { timingSafeEqual } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { analyze, AnalysisError, type Streamer } from "../analysis/analyzer.js";
-import { InputError, prepareEvidence } from "../analysis/evidence.js";
+import { analyze, AnalysisError, type KnowledgeAccess, type Streamer } from "../analysis/analyzer.js";
+import { lookupDomain, type DomainInfo } from "../analysis/domain.js";
+import { evidenceDomains, InputError, prepareEvidence, resolveDomains, type PreparedEvidence } from "../analysis/evidence.js";
+import { formatGroups, groupUrls, type KnowledgeBase } from "../knowledge/base.js";
 import {
   isHttpUrl,
   PageCaptureSchema,
@@ -35,6 +37,8 @@ export interface AppDeps {
   claudeConfigured?: boolean;
   store: ReportStore;
   jobs: JobStore;
+  /** Shared knowledge base (instant matches, earlier findings); null when disabled. */
+  knowledge?: KnowledgeBase | null;
   log?: (msg: string) => void;
 }
 
@@ -93,6 +97,7 @@ interface FrameInfo {
 export function createApp(deps: AppDeps): express.Express {
   const { config, store, jobs } = deps;
   const log = deps.log ?? ((m: string) => console.log(m));
+  const kb = deps.knowledge ?? null;
   const claudeConfigured = deps.claudeConfigured ?? deps.streamer !== null;
   const app = express();
   app.disable("x-powered-by");
@@ -136,6 +141,7 @@ export function createApp(deps: AppDeps): express.Express {
       web_research: config.webSearchMaxUses > 0 || config.webFetchMaxUses > 0,
       server_video: await hasFfmpeg(),
       auth_required: config.apiToken !== null,
+      knowledge: kb ? { enabled: true, ...kb.stats() } : { enabled: false },
       limits: { max_files: config.maxFiles, max_file_mb: Math.round(config.maxFileBytes / 1048576), max_images: config.maxImages },
     });
   });
@@ -225,17 +231,29 @@ export function createApp(deps: AppDeps): express.Express {
     };
 
     const job = jobs.create();
-    res.status(202).json({
-      id: job.id,
-      events_url: `/api/jobs/${job.id}/events`,
-      report_url: `/api/reports/${job.id}`,
-      view_url: `/#/report/${job.id}`,
-    });
-    void runJob(job, input);
+    res.status(202).json(jobLinks(job));
+    void runJob(job, input, { reuse: parseBool(body.reuse, true) });
   };
 
-  const runJob = async (job: Job, input: AnalysisInput) => {
+  const jobLinks = (job: Job) => ({
+    id: job.id,
+    events_url: `/api/jobs/${job.id}/events`,
+    report_url: `/api/reports/${job.id}`,
+    view_url: `/#/report/${job.id}`,
+  });
+
+  /** RDAP through the knowledge base's cache, when there is one. */
+  const domainLookup = async (domain: string): Promise<DomainInfo> => {
+    const cached = kb?.cachedDomain(domain);
+    if (cached) return cached;
+    const info = await lookupDomain(domain);
+    kb?.saveDomain(info);
+    return info;
+  };
+
+  const runJob = async (job: Job, input: AnalysisInput, opts: { reuse: boolean; evidence?: PreparedEvidence }) => {
     const started = Date.now();
+    const status = (message: string) => job.progress({ type: "status", message });
     try {
       if (!deps.streamer) {
         throw new AnalysisError(
@@ -243,12 +261,59 @@ export function createApp(deps: AppDeps): express.Express {
           "No Claude credentials are configured on the server. Set ANTHROPIC_API_KEY (or run in demo mode with TROONOOZ_DEMO=1).",
         );
       }
-      job.progress({ type: "status", message: "Preparing evidence" });
-      const evidence = await prepareEvidence(input, config, (message) => job.progress({ type: "status", message }));
-      job.progress({ type: "status", message: config.demo ? "Running demo analysis (sample data)" : "Analyzing with Claude" });
+      let evidence = opts.evidence;
+      if (!evidence) {
+        status("Preparing evidence");
+        evidence = await prepareEvidence(input, config, status);
+      }
+
+      // Layer 1: the same content was already checked recently.
+      if (kb && opts.reuse && evidence.matchable) {
+        status("Looking for earlier checks of the same content");
+        const m = await kb.findMatch(evidence.fingerprints, { focus: input.focus, webResearch: input.webResearch, demo: config.demo });
+        const summary = m ? store.summary(m.id) : null;
+        if (m && summary) {
+          job.matched(
+            {
+              id: m.id,
+              created_at: m.createdAt,
+              matched_on: m.matchedOn,
+              headline: summary.headline,
+              rating: summary.rating,
+              trust_score: summary.trust_score,
+              thumbnail: summary.thumbnail,
+            },
+            { input, evidence },
+          );
+          log(`[troonooz] ${job.id} matched earlier report ${m.id} (${m.matchedOn.join(", ")})`);
+          return;
+        }
+      }
+
+      evidence.domains = await resolveDomains(evidence, config, status, domainLookup);
+
+      // Layer 2: what earlier checks found about the same entities.
+      let knowledge: KnowledgeAccess | undefined;
+      if (kb) {
+        const demo = config.demo;
+        const related = await kb.related(evidence.fingerprints, evidenceDomains(evidence), { demo });
+        if (related.length) {
+          evidence.priorFindings = formatGroups(related);
+          status(`Found ${related.length} related finding${related.length === 1 ? "" : "s"} from earlier checks`);
+        }
+        knowledge = {
+          search: (query, kind) => {
+            const groups = kb.search(query, kind, { demo });
+            return { text: formatGroups(groups), urls: groupUrls(groups), count: groups.length };
+          },
+          priorUrls: groupUrls(related),
+        };
+      }
+
+      status(config.demo ? "Running demo analysis (sample data)" : "Analyzing with Claude");
       const result = await analyze(
         evidence,
-        { focus: input.focus, webResearch: input.webResearch, source: input.source },
+        { focus: input.focus, webResearch: input.webResearch, source: input.source, knowledge },
         config,
         deps.streamer,
         (e) => job.progress(e),
@@ -269,6 +334,7 @@ export function createApp(deps: AppDeps): express.Express {
           page: evidence.page ? { url: evidence.page.url, title: evidence.page.title } : null,
           thumbnails: evidence.thumbnails,
           notes: evidence.notes,
+          fingerprints: evidence.fingerprints,
         },
         signals: evidence.signals,
         domains: evidence.domains,
@@ -279,6 +345,12 @@ export function createApp(deps: AppDeps): express.Express {
         zooms: result.zooms,
       };
       await store.save(record);
+      try {
+        kb?.indexReport(record);
+      } catch (err) {
+        // The JSON report is the source of truth; the index is rebuilt from it at startup.
+        console.error(`[troonooz] ${job.id} could not be added to the knowledge base:`, err);
+      }
       job.done();
       log(`[troonooz] ${job.id} done in ${((Date.now() - started) / 1000).toFixed(1)}s (${result.turns} turns, ${result.research.queries.length} searches)`);
     } catch (err) {
@@ -301,6 +373,22 @@ export function createApp(deps: AppDeps): express.Express {
       return;
     }
     res.json({ id, status: job.status, events: job.events });
+  });
+
+  /** Run a full check on content that matched an earlier report, without re-uploading it. */
+  app.post("/api/jobs/:id/rerun", requireAuth, (req, res) => {
+    const previous = jobs.get(String(req.params.id));
+    if (!previous || previous.status !== "matched" || !previous.retained) {
+      res.status(404).json({ error: "not_found", message: "This check can no longer be re-run. Submit the content again." });
+      return;
+    }
+    if (jobs.runningCount() >= config.maxConcurrent) {
+      res.status(429).json({ error: "busy", message: "Too many analyses are running. Try again in a minute." });
+      return;
+    }
+    const job = jobs.create();
+    res.status(202).json(jobLinks(job));
+    void runJob(job, previous.retained.input, { reuse: false, evidence: previous.retained.evidence });
   });
 
   app.get("/api/jobs/:id/events", requireAuth, (req, res) => {
@@ -362,11 +450,27 @@ export function createApp(deps: AppDeps): express.Express {
   });
 
   app.delete("/api/reports/:id", requireAuth, async (req, res) => {
-    const ok = await store.delete(String(req.params.id));
+    const id = String(req.params.id);
+    const ok = await store.delete(id);
     if (!ok) {
       res.status(404).json({ error: "not_found", message: "No such report." });
       return;
     }
+    kb?.removeReport(id);
+    res.status(204).end();
+  });
+
+  /** A user thinks the result is wrong: never reuse it, and warn when its findings come up. */
+  app.post("/api/reports/:id/dispute", requireAuth, express.json({ limit: "16kb" }), async (req, res) => {
+    const id = String(req.params.id);
+    const body = (req.body ?? {}) as { note?: unknown };
+    const note = typeof body.note === "string" ? body.note.trim() : "";
+    const rec = ID_RE.test(id) ? await store.markDisputed(id, note) : null;
+    if (!rec) {
+      res.status(404).json({ error: "not_found", message: "No such report." });
+      return;
+    }
+    kb?.dispute(id, note);
     res.status(204).end();
   });
 

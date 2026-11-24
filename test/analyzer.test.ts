@@ -165,6 +165,33 @@ describe("analyze", () => {
     expect(String(results[2]!.content)).toContain("Zoom limit");
   });
 
+  it("lets the model look up earlier findings and counts their sources as researched", async () => {
+    const ev = await textEvidence();
+    ev.priorFindings = "1. CLAIM: Shark on the highway \u2192 contradicted.";
+    const searches: Array<[string, string]> = [];
+    const knowledge = {
+      search: (query: string, kind: string) => {
+        searches.push([query, kind]);
+        return { text: "1. CLAIM: ...", urls: [SAMPLE_NEWS_REPORT.sources[1]!.url], count: 1 };
+      },
+      priorUrls: [SAMPLE_NEWS_REPORT.sources[0]!.url],
+    };
+    const lookup = { type: "tool_use", id: "l1", name: "lookup_prior_findings", input: { query: "shark highway", kind: "claim" } };
+    const { streamer, calls } = scripted([message([lookup], "tool_use"), message([submit()], "tool_use")]);
+    const events: ProgressEvent[] = [];
+    const result = await analyze(ev, { ...opts, knowledge }, config, streamer, (e) => events.push(e));
+
+    expect(calls[0]!.tools!.map((t) => ("name" in t ? t.name : ""))).toEqual(["web_search", "web_fetch", "lookup_prior_findings", "submit_report"]);
+    expect(JSON.stringify(calls[0]!.messages[0]!.content)).toContain("Prior troonooz findings");
+    expect(searches).toEqual([["shark highway", "claim"]]);
+    const results = calls[1]!.messages.at(-1)!.content as ToolResult[];
+    expect(String(results[0]!.content)).toContain("1 earlier finding");
+    expect(events).toContainEqual({ type: "lookup", query: "shark highway" });
+    expect(result.research.lookups).toEqual(["shark highway"]);
+    // Both cited sources came from earlier findings rather than this run's web research.
+    expect(result.report.sources.every((s) => s.seen)).toBe(true);
+  });
+
   it("raises a refusal with its category", async () => {
     const ev = await textEvidence();
     const { streamer } = scripted([message([], "refusal", { stop_details: { type: "refusal", category: "cyber", explanation: null } as never })]);

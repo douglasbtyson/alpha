@@ -1185,6 +1185,42 @@ details.research summary {
   flex-wrap: wrap;
 }
 
+/* ---------- Already-checked match ---------- */
+.match-card {
+  display: grid;
+  gap: 14px;
+  border-color: var(--accent);
+}
+
+.match-card h2 {
+  font-size: 1.25rem;
+}
+
+.match-card p {
+  margin: 0;
+}
+
+.match-report {
+  display: grid;
+  grid-template-columns: 64px 1fr auto;
+  gap: 14px;
+  align-items: center;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.match-report:hover {
+  border-color: var(--accent);
+}
+
+.match-note {
+  font-size: 0.85rem;
+}
+
 /* ---------- History ---------- */
 .history-head {
   margin-bottom: 18px;
