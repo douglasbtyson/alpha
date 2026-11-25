@@ -4,7 +4,7 @@ import { candidateDomains, describeDomain, lookupDomain, type DomainInfo } from 
 import { prepareImage, thumbnail, type Region } from "./images.js";
 import { isHttpUrl, type AnalysisInput, type PageCapture, type UploadedFile } from "./input.js";
 import { describeSignals, extractImageSignals } from "./metadata.js";
-import { focusInstruction } from "./prompts.js";
+import { focusInstruction, QUICK_INSTRUCTION, type CheckMode } from "./prompts.js";
 import type { FocusArea } from "./schema.js";
 import { describeProbe, extractVideoFrames } from "./video.js";
 import { imageHash, imagePrint, textHash, type Fingerprint } from "../knowledge/fingerprint.js";
@@ -327,7 +327,7 @@ function pageBlock(page: PageCapture): string {
 /** Build the single user turn that carries all evidence. */
 export function buildUserContent(
   ev: PreparedEvidence,
-  opts: { focus: FocusArea[]; webResearch: boolean; zoomAvailable: boolean; source: string; today: string },
+  opts: { focus: FocusArea[]; webResearch: boolean; zoomAvailable: boolean; source: string; today: string; mode?: CheckMode },
 ): ContentBlock[] {
   const blocks: ContentBlock[] = [];
   const inventory: string[] = [];
@@ -344,6 +344,7 @@ export function buildUserContent(
       ? "Web research is available: use web_search and web_fetch to verify what matters."
       : "Web research is disabled for this request. Base the assessment on the material itself and your background knowledge, mark claims you cannot verify as unverifiable, and say so in limitations.",
     ...(opts.zoomAvailable ? ["inspect_region can zoom into any uploaded image or frame listed below by its ID."] : []),
+    ...(opts.mode === "quick" ? [QUICK_INSTRUCTION] : []),
     `Submitted via: ${opts.source}.`,
   ];
   const header = `${preamble.join("\n")}\n\nEvidence inventory:\n${inventory.map((l) => `- ${l}`).join("\n")}`;

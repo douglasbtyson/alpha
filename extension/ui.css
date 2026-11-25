@@ -151,6 +151,19 @@ a {
   outline-offset: 2px;
 }
 
+.quick {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.88rem;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.quick strong {
+  color: var(--text);
+}
+
 .actions {
   display: grid;
   gap: 8px;

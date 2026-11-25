@@ -13,6 +13,8 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     host: "127.0.0.1",
     model: "claude-opus-5-5",
     effort: "high",
+    quickEffort: "medium",
+    quickSearches: 3,
     fallbacks: true,
     webSearchMaxUses: 8,
     webFetchMaxUses: 5,
@@ -77,6 +79,10 @@ export function scripted(responses: Array<BetaMessage | ((params: Params) => Bet
     const msg = typeof next === "function" ? next(params) : next;
     for (const block of msg.content) {
       hooks.onBlockStart?.(block);
+      if (block.type === "tool_use") {
+        const json = JSON.stringify(block.input);
+        for (let i = 0; i < json.length; i += 40) hooks.onToolInputDelta?.(block.name, json.slice(i, i + 40));
+      }
       hooks.onBlock?.(block);
     }
     return msg;

@@ -144,6 +144,31 @@ function renderCheck() {
     });
   }
 
+  // Remember the last speed choice in this browser.
+  const MODE_KEY = "troonooz.mode";
+  const modeHint = document.getElementById("mode-hint");
+  const setHint = (mode) => {
+    modeHint.textContent = mode === "quick" ? "Quick checks are faster but less thorough." : "Thorough checks usually take 1\u20132 minutes.";
+  };
+  let savedMode = "thorough";
+  try {
+    savedMode = localStorage.getItem(MODE_KEY) === "quick" ? "quick" : "thorough";
+  } catch {
+    // storage unavailable
+  }
+  for (const radio of form.querySelectorAll('input[name="mode"]')) {
+    radio.checked = radio.value === savedMode;
+    radio.addEventListener("change", () => {
+      setHint(radio.value);
+      try {
+        localStorage.setItem(MODE_KEY, radio.value);
+      } catch {
+        // storage unavailable
+      }
+    });
+  }
+  setHint(savedMode);
+
   form.addEventListener("submit", (e) => {
     e.preventDefault();
     submitCheck(form);
@@ -185,6 +210,7 @@ async function submitCheck(form) {
   const focus = [...form.querySelectorAll('input[name="focus"]:checked')].map((c) => c.value).filter((v) => v !== "auto");
   fd.append("focus", JSON.stringify(focus));
   fd.append("web", document.getElementById("web-input").checked ? "true" : "false");
+  fd.append("mode", form.querySelector('input[name="mode"]:checked')?.value ?? "thorough");
   fd.append("source", "web");
 
   const button = document.getElementById("submit-button");
@@ -245,6 +271,23 @@ function renderReportView(id) {
     progress.hidden = true;
     errorBox.hidden = false;
     errorBox.replaceChildren(h("h2", {}, title), h("p", {}, message), h("a", { class: "btn", href: "#/" }, "Try again"));
+  };
+
+  const showDraft = (d) => {
+    const box = document.getElementById("draft");
+    if (!box) return;
+    const [label, tone] = OVERALL[d.rating] ?? ["", "neutral"];
+    box.hidden = false;
+    box.replaceChildren(
+      h("p", { class: "draft-label" }, "Preliminary result \u00b7 the full report is still being written"),
+      h(
+        "div",
+        { class: "draft-head" },
+        d.trust_score !== null ? h("span", { class: `score-pill tone-${scoreTone(d.trust_score, d.rating)}` }, d.trust_score) : null,
+        h("div", {}, label ? h("span", { class: `badge tone-${tone}` }, label) : null, d.headline ? h("p", { class: "draft-headline" }, d.headline) : null),
+      ),
+      d.summary ? h("p", { class: "draft-summary" }, d.summary) : null,
+    );
   };
 
   const showMatch = (m) => {
@@ -352,6 +395,10 @@ function renderReportView(id) {
     let lastKey = "";
     stop = subscribe(id, {
       progress: (e) => {
+        if (e.event.type === "draft") {
+          showDraft(e.event.draft);
+          return;
+        }
         const step = stepFor(e.event);
         if (!step) return;
         const key = step.join("|");

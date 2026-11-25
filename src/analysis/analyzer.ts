@@ -5,7 +5,8 @@ import type { Config } from "../config.js";
 import { buildUserContent, type EvidenceImage, type PreparedEvidence } from "./evidence.js";
 import { applyGrounding, UrlLedger } from "./grounding.js";
 import { zoomCrop } from "./images.js";
-import { NUDGE_SUBMIT, SYSTEM_PROMPT } from "./prompts.js";
+import { NUDGE_SUBMIT, SYSTEM_PROMPT, type CheckMode } from "./prompts.js";
+import { extractDraft, type ReportDraft } from "./draft.js";
 import { supportsFallbacks } from "../knowledge/triage.js";
 import { normalizeReport, ReportSchema, type FinalReport, type FocusArea } from "./schema.js";
 
@@ -28,11 +29,15 @@ export type ProgressEvent =
   | { type: "zoom"; image: string; reason: string }
   | { type: "lookup"; query: string }
   | { type: "writing" }
-  | { type: "fallback"; from: string; to: string };
+  | { type: "fallback"; from: string; to: string }
+  /** The verdict and summary so far, while the report is being written. Not stored in job history. */
+  | { type: "draft"; draft: ReportDraft };
 
 export interface StreamHooks {
   onBlockStart?: (block: ContentBlock) => void;
   onBlock?: (block: ContentBlock) => void;
+  /** Raw JSON fragment of a client tool's input as it streams. */
+  onToolInputDelta?: (toolName: string, partialJson: string) => void;
 }
 
 /**
@@ -44,8 +49,16 @@ export type Streamer = (params: MessageParams, hooks: StreamHooks) => Promise<Be
 export function anthropicStreamer(client: Anthropic): Streamer {
   return async (params, hooks) => {
     const stream = client.beta.messages.stream(params);
+    // Track the tool block being written and pass its raw fragments on. (The SDK's own
+    // "inputJson" event parses each snapshot and fails the stream if a fragment can't be parsed.)
+    let tool: { index: number; name: string } | null = null;
     stream.on("streamEvent", (event) => {
-      if (event.type === "content_block_start") hooks.onBlockStart?.(event.content_block);
+      if (event.type === "content_block_start") {
+        hooks.onBlockStart?.(event.content_block);
+        tool = event.content_block.type === "tool_use" ? { index: event.index, name: event.content_block.name } : null;
+      } else if (event.type === "content_block_delta" && event.delta.type === "input_json_delta" && tool?.index === event.index) {
+        hooks.onToolInputDelta?.(tool.name, event.delta.partial_json);
+      }
     });
     stream.on("contentBlock", (block) => hooks.onBlock?.(block));
     return await stream.finalMessage();
@@ -78,6 +91,8 @@ export interface AnalysisResult {
   turns: number;
   zooms: number;
   research: { queries: string[]; fetched: string[]; lookups?: string[]; urlsSeen: number; unseenCitedUrls: string[] };
+  /** Milliseconds spent researching (until the report started) and writing the report. */
+  timing: { research_ms: number; writing_ms: number };
   usage: UsageTotals;
 }
 
@@ -96,6 +111,28 @@ export interface AnalyzeOptions {
   source: string;
   today?: string;
   knowledge?: KnowledgeAccess;
+  /** "quick": medium effort, few searches, no zooming, short report. Default "thorough". */
+  mode?: CheckMode;
+}
+
+/** What a check may spend, by mode. */
+interface Limits {
+  effort: Config["effort"];
+  searches: number;
+  fetches: number;
+  zooms: number;
+}
+
+function limitsFor(config: Config, mode: CheckMode): Limits {
+  if (mode === "quick") {
+    return {
+      effort: config.quickEffort,
+      searches: Math.min(config.webSearchMaxUses, config.quickSearches),
+      fetches: Math.min(config.webFetchMaxUses, 1),
+      zooms: 0,
+    };
+  }
+  return { effort: config.effort, searches: config.webSearchMaxUses, fetches: config.webFetchMaxUses, zooms: config.maxZooms };
 }
 
 const MAX_TURNS = 16;
@@ -122,13 +159,13 @@ const ZoomInput = z.object({
   reason: z.string(),
 });
 
-function buildTools(config: Config, webResearch: boolean, zoomable: boolean, knowledge: boolean): ToolUnion[] {
+function buildTools(limits: Limits, webResearch: boolean, zoomable: boolean, knowledge: boolean): ToolUnion[] {
   const tools: ToolUnion[] = [];
-  if (webResearch && config.webSearchMaxUses > 0) {
-    tools.push({ type: "web_search_20260209", name: "web_search", max_uses: config.webSearchMaxUses });
+  if (webResearch && limits.searches > 0) {
+    tools.push({ type: "web_search_20260209", name: "web_search", max_uses: limits.searches });
   }
-  if (webResearch && config.webFetchMaxUses > 0) {
-    tools.push({ type: "web_fetch_20260209", name: "web_fetch", max_uses: config.webFetchMaxUses });
+  if (webResearch && limits.fetches > 0) {
+    tools.push({ type: "web_fetch_20260209", name: "web_fetch", max_uses: limits.fetches });
   }
   if (knowledge) {
     tools.push({
@@ -152,7 +189,7 @@ function buildTools(config: Config, webResearch: boolean, zoomable: boolean, kno
       },
     });
   }
-  if (zoomable && config.maxZooms > 0) {
+  if (zoomable && limits.zooms > 0) {
     tools.push({
       name: ZOOM_TOOL,
       description:
@@ -210,8 +247,11 @@ export async function analyze(
   streamer: Streamer,
   progress: (e: ProgressEvent) => void = () => {},
 ): Promise<AnalysisResult> {
+  const startedAt = Date.now();
+  const mode: CheckMode = options.mode ?? "thorough";
+  const limits = limitsFor(config, mode);
   const zoomable = evidence.images.length > 0;
-  const tools = buildTools(config, options.webResearch, zoomable, options.knowledge !== undefined);
+  const tools = buildTools(limits, options.webResearch, zoomable, options.knowledge !== undefined);
   const today = options.today ?? new Date().toISOString().slice(0, 10);
   const imagesById = new Map<string, EvidenceImage>(evidence.images.map((i) => [i.id, i]));
 
@@ -221,7 +261,8 @@ export async function analyze(
       content: buildUserContent(evidence, {
         focus: options.focus,
         webResearch: options.webResearch,
-        zoomAvailable: zoomable && config.maxZooms > 0,
+        zoomAvailable: zoomable && limits.zooms > 0,
+        mode,
         source: options.source,
         today,
       }),
@@ -232,7 +273,7 @@ export async function analyze(
     model: config.model,
     max_tokens: MAX_TOKENS,
     thinking: { type: "adaptive" as const },
-    output_config: { effort: config.effort },
+    output_config: { effort: limits.effort },
     // Tools render before system, so this breakpoint caches tools + system.
     system: [{ type: "text" as const, text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" as const } }],
     // Auto-cache the growing conversation so continuation turns re-read evidence and search results from cache.
@@ -257,6 +298,10 @@ export async function analyze(
   let invalidReports = 0;
   let zooms = 0;
   let announcedThinking = false;
+  let writingStartedAt: number | null = null;
+  let draftJson = "";
+  let draftSentAt = 0;
+  let lastDraft = "";
 
   const hooks: StreamHooks = {
     onBlockStart: (block) => {
@@ -264,8 +309,22 @@ export async function analyze(
         announcedThinking = true;
         progress({ type: "thinking" });
       } else if (block.type === "tool_use" && block.name === SUBMIT_TOOL) {
+        writingStartedAt = Date.now();
+        draftJson = "";
         progress({ type: "writing" });
       }
+    },
+    onToolInputDelta: (name, part) => {
+      if (name !== SUBMIT_TOOL) return;
+      draftJson += part;
+      const now = Date.now();
+      if (now - draftSentAt < 250) return;
+      const draft = extractDraft(draftJson);
+      const key = draft ? JSON.stringify(draft) : "";
+      if (!draft || key === lastDraft) return;
+      draftSentAt = now;
+      lastDraft = key;
+      progress({ type: "draft", draft });
     },
     onBlock: (block) => {
       if (block.type === "server_tool_use") {
@@ -285,7 +344,7 @@ export async function analyze(
     if (!parsed.success) {
       return { type: "tool_result", tool_use_id: block.id, is_error: true, content: `Invalid input: ${zodSummary(parsed.error)}` };
     }
-    if (zooms >= config.maxZooms) {
+    if (zooms >= limits.zooms) {
       return {
         type: "tool_result",
         tool_use_id: block.id,
@@ -378,12 +437,15 @@ export async function analyze(
           ...(evidence.page?.link_url ? [evidence.page.link_url] : []),
           ...evidence.remoteImages.map((r) => r.url),
         ]);
+        const finishedAt = Date.now();
+        const writeStart = writingStartedAt ?? finishedAt;
         return {
           report,
           model: msg.model,
           turns: turn,
           zooms,
           research: { queries: ledger.queries, fetched: ledger.fetched, lookups, urlsSeen: ledger.size, unseenCitedUrls: unseen },
+          timing: { research_ms: writeStart - startedAt, writing_ms: finishedAt - writeStart },
           usage,
         };
       }

@@ -111,6 +111,27 @@ describe("HTTP API", () => {
     expect(uiVersion(ui)).not.toBe(before);
   });
 
+  it("records the check mode and where the time went", async () => {
+    const { app, store } = await makeApp();
+    const res = await request(app).post("/api/analyze").field("text", "Shark on the highway").field("mode", "quick").expect(202);
+    await waitForJob(res.body.id);
+    const rec = (await store.get(res.body.id))!;
+    expect(rec.input.mode).toBe("quick");
+    expect(rec.timing).toMatchObject({ prepare_ms: expect.any(Number), research_ms: expect.any(Number), writing_ms: expect.any(Number) });
+    expect(rec.timing!.total_ms).toBeGreaterThanOrEqual(rec.timing!.research_ms + rec.timing!.writing_ms);
+  });
+
+  it("sends report drafts live without adding them to the replay history", () => {
+    const job = jobs.create();
+    const seen: Array<[string, boolean | undefined]> = [];
+    job.on("event", (e, transient) => seen.push([e.event?.type ?? e.type, transient]));
+    job.progress({ type: "writing" });
+    job.progress({ type: "draft", draft: { rating: "mixed", trust_score: 55, confidence: null, headline: "", summary: "" } });
+    expect(job.events.map((e) => (e.type === "progress" ? e.event.type : e.type))).toEqual(["writing"]);
+    expect(job.latestDraft).not.toBeNull();
+    expect(seen).toEqual([["writing", undefined], ["draft", true]]);
+  });
+
   it("reports input problems through the job", async () => {
     const { app } = await makeApp();
     const res = await request(app).post("/api/analyze").field("source", "web").expect(202);

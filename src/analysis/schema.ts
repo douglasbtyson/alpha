@@ -161,6 +161,12 @@ const SourceSchema = z.object({
 });
 
 export const ReportSchema = z.object({
+  verdict: z.object({
+    rating: z.enum(OVERALL_RATINGS),
+    trust_score: score("Overall trustworthiness (see rubric in the instructions)."),
+    confidence: z.enum(CONFIDENCE_LEVELS),
+    headline: z.string().describe("One-line verdict, at most ~90 characters."),
+  }),
   summary: z.string().describe("2-4 sentence plain-language bottom line for a non-expert."),
   content: z.object({
     type: z.enum(CONTENT_TYPES),
@@ -168,12 +174,6 @@ export const ReportSchema = z.object({
     author: z.string().describe('Account, outlet, seller, or byline as shown. "" if unknown.'),
     published: z.string().describe('Publication date/time as shown or established. "" if unknown.'),
     description: z.string().describe("Neutral description of what the material shows and claims."),
-  }),
-  verdict: z.object({
-    rating: z.enum(OVERALL_RATINGS),
-    trust_score: score("Overall trustworthiness (see rubric in the instructions)."),
-    confidence: z.enum(CONFIDENCE_LEVELS),
-    headline: z.string().describe("One-line verdict, at most ~90 characters."),
   }),
   news: NewsSchema.nullable().describe("News/claims assessment, or null if the material makes no news or factual claims."),
   vendor: VendorSchema.nullable().describe("Vendor/seller assessment, or null if nothing is being sold or promoted."),

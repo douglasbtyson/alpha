@@ -143,6 +143,14 @@ Each triage call has a cost. It pays off only when people often check the same s
 
 The database also caches domain-registration (RDAP) lookups for 7 days. Turn the whole feature off with `TROONOOZ_KNOWLEDGE=off`.
 
+## Speed
+
+Every report records where its time went: preparing evidence, looking for earlier checks, researching, and writing the report. The breakdown appears under **How this check was done** and in the server log (for example `done in 64.2s (thorough: prepare 1.1s, earlier checks 0.0s, research 41.5s, writing 21.6s; …)`).
+
+Two features make checks faster or feel faster:
+- **Quick check** (a choice on the form, and a checkbox in the extension popup): medium effort, at most 3 searches and 1 page read, no zooming, and a shorter report. A quick result is never reused for someone who asks for a thorough check.
+- **Early verdict:** the report schema puts the verdict first. While Claude writes the report, the score, verdict, and summary appear as a **Preliminary result**, before the full report is finished. These drafts are streamed live but not kept in the job history.
+
 ### Design choices worth knowing
 
 - **Prompt-injection resistance.** Page text, captions, and pasted content go into fenced blocks marked as untrusted. The model is told never to follow instructions inside them, and to report any attempt as a red flag.
@@ -160,7 +168,9 @@ All settings are environment variables; `.env` is loaded automatically. See `.en
 | `PORT` / `HOST` | `8787` / `127.0.0.1` | Listen address |
 | `TROONOOZ_API_TOKEN` | – | Require `Authorization: Bearer <token>` on `/api` (set this before exposing the server) |
 | `TROONOOZ_MODEL` | `claude-opus-5-5` | Model |
-| `TROONOOZ_EFFORT` | `high` | `low` · `medium` · `high` · `xhigh` · `max` |
+| `TROONOOZ_EFFORT` | `high` | Effort for thorough checks: `low` · `medium` · `high` · `xhigh` · `max` |
+| `TROONOOZ_QUICK_EFFORT` | `medium` | Effort for quick checks |
+| `TROONOOZ_QUICK_SEARCHES` | `3` | Web searches allowed in a quick check (it also reads at most 1 page and doesn't zoom) |
 | `TROONOOZ_FALLBACKS` | `on` | Server-side refusal fallbacks |
 | `TROONOOZ_WEB_SEARCH_MAX_USES` | `8` | Searches per check (0 disables) |
 | `TROONOOZ_WEB_FETCH_MAX_USES` | `5` | Page fetches per check (0 disables) |
@@ -190,12 +200,13 @@ All settings are environment variables; `.env` is loaded automatically. See `.en
 | `page` | JSON | Browser capture: `{url, title, site_name, description, author, published, canonical, lang, selection, text, capture_mode}` |
 | `focus` | JSON array | Any of `news`, `vendor`, `media`. Empty means check everything relevant. |
 | `web` | `true`/`false` | Live web research (default `true`) |
+| `mode` | `thorough`/`quick` | Quick: medium effort, at most 3 searches and 1 page read, no zooming, shorter report (default `thorough`) |
 | `reuse` | `true`/`false` | Allow an instant match with an earlier report (default `true`) |
 | `source` | `web`/`extension`/`api` | Where the request came from |
 
 Other endpoints:
 
-- `GET /api/jobs/:id/events` is a Server-Sent Events stream of `progress` events (`status`, `thinking`, `search`, `fetch`, `lookup`, `zoom`, `writing`, `fallback`) that ends with `done`, `match` (an earlier report covers this content), or `error`. Because `EventSource` can't send headers, this endpoint also accepts the token as `?token=`.
+- `GET /api/jobs/:id/events` is a Server-Sent Events stream of `progress` events (`status`, `thinking`, `search`, `fetch`, `lookup`, `zoom`, `writing`, `draft`, `fallback`) that ends with `done`, `match` (an earlier report covers this content), or `error`. Each event has an `id`, so a reconnecting client resumes where it left off. `draft` events (the verdict while the report is written) are live only and carry no `id`. Because `EventSource` can't send headers, this endpoint also accepts the token as `?token=`.
 - `GET /api/reports/:id` returns the full record (report, inputs, thumbnails, automated signals, research log, token usage) and its `story` (other checks of the same story). `GET /api/reports` lists recent reports, and `DELETE /api/reports/:id` deletes one.
 - `POST /api/jobs/:id/rerun` runs a fresh check on content from a matched job, without re-uploading it.
 - `POST /api/reports/:id/dispute` with `{"note": "..."}` flags a report as possibly wrong.

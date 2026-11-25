@@ -40,6 +40,7 @@ function record(opts: {
   disputed?: boolean;
   linkedTo?: string;
   signature?: StorySignature;
+  mode?: "quick" | "thorough";
 }): AnalysisRecord {
   const report = opts.report ?? SAMPLE_NEWS_REPORT;
   return {
@@ -53,6 +54,7 @@ function record(opts: {
       source: "web",
       focus: opts.focus ?? [],
       web_research: opts.web ?? true,
+      mode: opts.mode,
       text_excerpt: "",
       urls: [],
       page: null,
@@ -126,6 +128,14 @@ describe("instant matches", () => {
 
     kb.indexReport(record({ prints: [url("c.example/x")] }));
     expect(await kb.findMatch([url("c.example/x")], req({ focus: ["news", "media"] }))).not.toBeNull();
+  });
+
+  it("never lets a quick check stand in for a thorough one", async () => {
+    kb.indexReport(record({ prints: [url("q.example/x")], mode: "quick" }));
+    expect(await kb.findMatch([url("q.example/x")], req())).toBeNull();
+    expect(await kb.findMatch([url("q.example/x")], req({ mode: "quick" }))).not.toBeNull();
+    kb.indexReport(record({ prints: [url("t.example/x")] })); // older reports have no mode: thorough
+    expect(await kb.findMatch([url("t.example/x")], req({ mode: "quick" }))).not.toBeNull();
   });
 
   it("never reuses disputed or demo reports, and prefers the newest match", async () => {

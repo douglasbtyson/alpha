@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { analyze, AnalysisError, type KnowledgeAccess, type Streamer } from "../analysis/analyzer.js";
 import { lookupDomain, type DomainInfo } from "../analysis/domain.js";
 import { evidenceDomains, InputError, prepareEvidence, resolveDomains, type PreparedEvidence } from "../analysis/evidence.js";
-import { focusCovers, formatGroups, formatStories, groupUrls, type KnowledgeBase, type StoryCard } from "../knowledge/base.js";
+import { focusCovers, formatGroups, formatStories, groupUrls, modeCovers, type KnowledgeBase, type StoryCard } from "../knowledge/base.js";
 import type { StorySignature, TriageRunner } from "../knowledge/triage.js";
 import {
   isHttpUrl,
@@ -257,6 +257,7 @@ export function createApp(deps: AppDeps): express.Express {
       focus: parseFocus(body.focus),
       webResearch: parseBool(body.web, true),
       source,
+      mode: str(body.mode) === "quick" ? "quick" : "thorough",
     };
 
     const job = jobs.create();
@@ -287,6 +288,17 @@ export function createApp(deps: AppDeps): express.Express {
   ) => {
     const started = Date.now();
     const status = (message: string) => job.progress({ type: "status", message });
+    const mode = input.mode ?? "thorough";
+    let prepareMs = 0;
+    let reuseMs = 0;
+    const time = async <T>(fn: () => Promise<T>, add: (ms: number) => void): Promise<T> => {
+      const t = Date.now();
+      try {
+        return await fn();
+      } finally {
+        add(Date.now() - t);
+      }
+    };
     try {
       if (!deps.streamer) {
         throw new AnalysisError(
@@ -297,13 +309,15 @@ export function createApp(deps: AppDeps): express.Express {
       let evidence = opts.evidence;
       if (!evidence) {
         status("Preparing evidence");
-        evidence = await prepareEvidence(input, config, status);
+        evidence = await time(() => prepareEvidence(input, config, status), (ms) => (prepareMs += ms));
       }
+      const ev: PreparedEvidence = evidence;
+      const reuseStarted = Date.now();
 
       // Layer 1: the same content was already checked recently.
       if (kb && opts.reuse && evidence.matchable) {
         status("Looking for earlier checks of the same content");
-        const m = await kb.findMatch(evidence.fingerprints, { focus: input.focus, webResearch: input.webResearch, demo: config.demo });
+        const m = await kb.findMatch(evidence.fingerprints, { focus: input.focus, webResearch: input.webResearch, demo: config.demo, mode });
         const summary = m ? store.summary(m.id) : null;
         if (m && summary) {
           job.matched(
@@ -340,7 +354,8 @@ export function createApp(deps: AppDeps): express.Express {
           if (card) storyLeads.push(card);
           if (card && t.verdict!.confidence === "high") {
             linkTo = card.latestReport;
-            const usable = card.reusable && (!input.webResearch || card.webResearch) && focusCovers(card.focus, input.focus);
+            const usable =
+              card.reusable && (!input.webResearch || card.webResearch) && focusCovers(card.focus, input.focus) && modeCovers(card.mode, mode);
             const summary = usable ? store.summary(card.latestReport) : null;
             if (summary) {
               job.matched(
@@ -366,7 +381,9 @@ export function createApp(deps: AppDeps): express.Express {
         }
       }
 
-      evidence.domains = await resolveDomains(evidence, config, status, domainLookup);
+      reuseMs = Date.now() - reuseStarted;
+      evidence.domains = await time(() => resolveDomains(ev, config, status, domainLookup), (ms) => (prepareMs += ms));
+      const relatedStarted = Date.now();
 
       // Layer 2: what earlier checks found about the same entities.
       let knowledge: KnowledgeAccess | undefined;
@@ -394,10 +411,11 @@ export function createApp(deps: AppDeps): express.Express {
         };
       }
 
-      status(config.demo ? "Running demo analysis (sample data)" : "Analyzing with Claude");
+      prepareMs += Date.now() - relatedStarted;
+      status(config.demo ? "Running demo analysis (sample data)" : mode === "quick" ? "Running a quick check with Claude" : "Analyzing with Claude");
       const result = await analyze(
         evidence,
-        { focus: input.focus, webResearch: input.webResearch, source: input.source, knowledge },
+        { focus: input.focus, webResearch: input.webResearch, source: input.source, knowledge, mode },
         config,
         deps.streamer,
         (e) => job.progress(e),
@@ -413,6 +431,7 @@ export function createApp(deps: AppDeps): express.Express {
           source: input.source,
           focus: input.focus,
           web_research: input.webResearch,
+          mode,
           text_excerpt: evidence.text.slice(0, 500),
           urls: evidence.urls,
           page: evidence.page ? { url: evidence.page.url, title: evidence.page.title } : null,
@@ -429,6 +448,13 @@ export function createApp(deps: AppDeps): express.Express {
         turns: result.turns,
         zooms: result.zooms,
         linked_to: linkTo,
+        timing: {
+          prepare_ms: prepareMs,
+          reuse_ms: reuseMs,
+          research_ms: result.timing.research_ms,
+          writing_ms: result.timing.writing_ms,
+          total_ms: Date.now() - started,
+        },
       };
       await store.save(record);
       try {
@@ -439,7 +465,10 @@ export function createApp(deps: AppDeps): express.Express {
         console.error(`[troonooz] ${job.id} could not be added to the knowledge base:`, err);
       }
       job.done();
-      log(`[troonooz] ${job.id} done in ${((Date.now() - started) / 1000).toFixed(1)}s (${result.turns} turns, ${result.research.queries.length} searches)`);
+      const sec = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
+      log(
+        `[troonooz] ${job.id} done in ${sec(Date.now() - started)} (${mode}: prepare ${sec(prepareMs)}, earlier checks ${sec(reuseMs)}, research ${sec(result.timing.research_ms)}, writing ${sec(result.timing.writing_ms)}; ${result.turns} turns, ${result.research.queries.length} searches)`,
+      );
     } catch (err) {
       const fe = friendlyError(err, config.model, claudeConfigured);
       if (fe.internal) console.error(`[troonooz] ${job.id} failed:`, err);
@@ -508,12 +537,19 @@ export function createApp(deps: AppDeps): express.Express {
       res.end();
       return;
     }
+    // Transient events (report drafts) carry no id, so they don't move the resume point.
+    const sendTransient = (e: JobEvent) => res.write(`event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`);
     job.events.slice(from).forEach((e, k) => send(e, from + k));
     if (job.status !== "running") {
       res.end();
       return;
     }
-    const onEvent = (e: JobEvent) => {
+    if (job.latestDraft) sendTransient(job.latestDraft);
+    const onEvent = (e: JobEvent, transient?: boolean) => {
+      if (transient) {
+        sendTransient(e);
+        return;
+      }
       send(e, job.events.length - 1);
       if (e.type !== "progress") cleanup();
     };

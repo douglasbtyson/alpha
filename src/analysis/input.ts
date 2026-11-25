@@ -48,6 +48,9 @@ export type PageCapture = z.infer<typeof PageCaptureSchema>;
 
 export type InputSource = "web" | "extension" | "api";
 
+export type { CheckMode } from "./prompts.js";
+import type { CheckMode } from "./prompts.js";
+
 export interface AnalysisInput {
   files: UploadedFile[];
   frames: FrameUpload[];
@@ -58,6 +61,8 @@ export interface AnalysisInput {
   focus: FocusArea[];
   webResearch: boolean;
   source: InputSource;
+  /** "quick" trades thoroughness for speed; defaults to "thorough". */
+  mode?: CheckMode;
 }
 
 export function isHttpUrl(s: string): boolean {

@@ -61,6 +61,7 @@ export interface StoryCard {
   disputed: boolean;
   focus: FocusArea[];
   webResearch: boolean;
+  mode: "quick" | "thorough";
 }
 
 export interface StoryMember {
@@ -75,6 +76,7 @@ export interface StoryMember {
 export interface MatchRequest {
   focus: FocusArea[];
   webResearch: boolean;
+  mode?: "quick" | "thorough";
   demo: boolean;
   now?: Date;
 }
@@ -95,6 +97,7 @@ interface ReportRow {
   web: number;
   fresh_until: string;
   disputed: number;
+  mode: string;
   headline: string;
   description: string;
   rating: string;
@@ -120,7 +123,7 @@ interface FindingDbRow {
 
 const DOMAIN_TTL_DAYS = 7;
 /** Bump when the schema changes: the database is a derived index, so it is simply rebuilt. */
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const TABLES = ["reports", "prints", "findings", "findings_fts", "disputes", "domains", "stories", "story_reports", "stories_fts"];
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS reports (
@@ -131,6 +134,7 @@ CREATE TABLE IF NOT EXISTS reports (
   web INTEGER NOT NULL,
   fresh_until TEXT NOT NULL,
   disputed INTEGER NOT NULL DEFAULT 0,
+  mode TEXT NOT NULL DEFAULT 'thorough',
   headline TEXT NOT NULL,
   description TEXT NOT NULL,
   rating TEXT NOT NULL,
@@ -194,6 +198,11 @@ CREATE TABLE IF NOT EXISTS story_reports (
 CREATE INDEX IF NOT EXISTS story_reports_story ON story_reports(story_id);
 CREATE VIRTUAL TABLE IF NOT EXISTS stories_fts USING fts5(title, summary, keywords, tokenize = 'porter unicode61');
 `;
+
+/** A quick check never stands in for a thorough one; a thorough check serves both. */
+export function modeCovers(prior: string, requested: "quick" | "thorough"): boolean {
+  return requested === "quick" || prior !== "quick";
+}
 
 /** Whether an earlier check's focus covers what is being asked for now. */
 export function focusCovers(prior: FocusArea[], requested: FocusArea[]): boolean {
@@ -271,8 +280,8 @@ export class KnowledgeBase {
       this.removeRows(rec.id);
       this.db
         .prepare(
-          `INSERT INTO reports (id, created_at, demo, focus, web, fresh_until, disputed, headline, description, rating, trust_score, thumbnail, signature, linked_to)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO reports (id, created_at, demo, focus, web, fresh_until, disputed, mode, headline, description, rating, trust_score, thumbnail, signature, linked_to)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           rec.id,
@@ -282,6 +291,7 @@ export class KnowledgeBase {
           rec.input.web_research ? 1 : 0,
           freshUntil,
           rec.disputed ? 1 : 0,
+          rec.input.mode ?? "thorough",
           rec.report.verdict.headline,
           rec.report.content.description,
           rec.report.verdict.rating,
@@ -466,6 +476,7 @@ export class KnowledgeBase {
       disputed: rep.disputed === 1,
       focus: JSON.parse(rep.focus) as FocusArea[],
       webResearch: rep.web === 1,
+      mode: rep.mode === "quick" ? "quick" : "thorough",
     };
   }
 
@@ -552,11 +563,12 @@ export class KnowledgeBase {
     const now = (req.now ?? new Date()).toISOString();
     const rows = this.db
       .prepare(
-        `SELECT id, created_at, focus, web FROM reports WHERE id IN (${ids.map(() => "?").join(",")}) AND disputed = 0 AND fresh_until > ? ORDER BY created_at DESC`,
+        `SELECT id, created_at, focus, web, mode FROM reports WHERE id IN (${ids.map(() => "?").join(",")}) AND disputed = 0 AND fresh_until > ? ORDER BY created_at DESC`,
       )
-      .all(...ids, now) as Array<{ id: string; created_at: string; focus: string; web: number }>;
+      .all(...ids, now) as Array<{ id: string; created_at: string; focus: string; web: number; mode: string }>;
     for (const row of rows) {
       if (req.webResearch && !row.web) continue;
+      if (!modeCovers(row.mode, req.mode ?? "thorough")) continue;
       if (!focusCovers(JSON.parse(row.focus) as FocusArea[], req.focus)) continue;
       return { id: row.id, createdAt: row.created_at, matchedOn: [...new Set(prints.map((p) => p.kind))] };
     }

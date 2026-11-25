@@ -76,7 +76,35 @@ describe("analyze", () => {
     expect(result.report.sources.every((s) => s.seen)).toBe(true);
     expect(result.research.queries).toEqual(["shark highway hoax"]);
     expect(result.usage.input_tokens).toBe(100);
-    expect(events.map((e) => e.type)).toEqual(["search", "results", "writing"]);
+    expect(events.map((e) => e.type)).toEqual(["search", "results", "writing", "draft"]);
+  });
+
+  it("runs quick checks with medium effort, few searches, no zooming, and a brevity instruction", async () => {
+    const ev = await prepareEvidence(input({ files: [{ name: "p.png", mimeType: "image/png", buffer: await solidPng(400, 300, "#00aa00") }] }), config);
+    const { streamer, calls } = scripted([message([submit()], "tool_use")]);
+    await analyze(ev, { ...opts, mode: "quick" }, config, streamer);
+    const p = calls[0]!;
+    expect(p.output_config).toEqual({ effort: "medium" });
+    const tools = p.tools!.map((t) => ("name" in t ? t.name : ""));
+    expect(tools).toEqual(["web_search", "web_fetch", "submit_report"]);
+    expect(p.tools!.find((t) => "name" in t && t.name === "web_search")).toMatchObject({ max_uses: 3 });
+    expect(p.tools!.find((t) => "name" in t && t.name === "web_fetch")).toMatchObject({ max_uses: 1 });
+    expect(JSON.stringify(p.messages[0]!.content)).toContain("Quick check requested");
+  });
+
+  it("streams the verdict while the report is written and times both phases", async () => {
+    const ev = await textEvidence();
+    // Claude writes fields in schema order, which puts the verdict first.
+    const { verdict, summary, ...rest } = SAMPLE_NEWS_REPORT;
+    const { streamer } = scripted([message([submit({ verdict, summary, ...rest })], "tool_use")]);
+    const events: ProgressEvent[] = [];
+    const result = await analyze(ev, opts, config, streamer, (e) => events.push(e));
+    const drafts = events.filter((e): e is Extract<ProgressEvent, { type: "draft" }> => e.type === "draft");
+    expect(drafts.length).toBeGreaterThanOrEqual(1);
+    expect(drafts[0]!.draft).toMatchObject({ rating: "untrustworthy" });
+    expect(events.findIndex((e) => e.type === "writing")).toBeLessThan(events.findIndex((e) => e.type === "draft"));
+    expect(result.timing.research_ms).toBeGreaterThanOrEqual(0);
+    expect(result.timing.writing_ms).toBeGreaterThanOrEqual(0);
   });
 
   it("omits web tools and fallbacks when disabled", async () => {

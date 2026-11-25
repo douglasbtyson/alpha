@@ -218,7 +218,18 @@ export function demoStreamer(opts: { delayMs?: number } = {}): Streamer {
         })),
       } as ContentBlock);
     }
-    await emit({ type: "tool_use", id: "toolu_demo_1", name: "submit_report", input: sample } as ContentBlock);
+    // Stream the report the way the API does, verdict first, so the early-verdict view can be tried in demo mode.
+    const submit = { type: "tool_use", id: "toolu_demo_1", name: "submit_report", input: sample } as ContentBlock;
+    hooks.onBlockStart?.(submit);
+    const { verdict, summary, ...rest } = sample;
+    const json = JSON.stringify({ verdict, summary, ...rest });
+    const steps = 12;
+    for (let i = 0; i < steps; i++) {
+      await sleep(delay / 3);
+      hooks.onToolInputDelta?.("submit_report", json.slice(Math.floor((i * json.length) / steps), Math.floor(((i + 1) * json.length) / steps)));
+    }
+    hooks.onBlock?.(submit);
+    blocks.push(submit);
     return message(blocks, "tool_use");
   };
 }

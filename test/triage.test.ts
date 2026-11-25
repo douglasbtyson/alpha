@@ -32,6 +32,7 @@ const card = (id: string, extra: Partial<StoryCard> = {}): StoryCard => ({
   disputed: false,
   focus: [],
   webResearch: true,
+  mode: "thorough",
   ...extra,
 });
 

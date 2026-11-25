@@ -39,6 +39,10 @@ describe("report schema", () => {
     expect(unions).toBe(3);
   });
 
+  it("puts the verdict first so it is written (and shown) first", () => {
+    expect(Object.keys(schema.properties as object).slice(0, 2)).toEqual(["verdict", "summary"]);
+  });
+
   it("accepts the sample reports", () => {
     expect(ReportSchema.safeParse(SAMPLE_NEWS_REPORT).success).toBe(true);
     expect(ReportSchema.safeParse(SAMPLE_VENDOR_REPORT).success).toBe(true);

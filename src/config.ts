@@ -13,6 +13,10 @@ export interface Config {
   effort: Effort;
   /** Server-side refusal fallbacks (`fallbacks: "default"`). Disable for proxies that reject the beta. */
   fallbacks: boolean;
+  /** Effort for quick checks. */
+  quickEffort: Effort;
+  /** Max web searches for quick checks. */
+  quickSearches: number;
   /** Max web searches Claude may run per analysis (0 disables web search). */
   webSearchMaxUses: number;
   /** Max pages Claude may fetch per analysis (0 disables web fetch). */
@@ -62,16 +66,20 @@ function bool(name: string, fallback: boolean): boolean {
 export function loadConfig(): Config {
   if (existsSync(".env")) process.loadEnvFile(".env");
 
-  const effortRaw = (process.env.TROONOOZ_EFFORT ?? "high").trim() as Effort;
-  if (!EFFORTS.includes(effortRaw)) {
-    throw new Error(`TROONOOZ_EFFORT must be one of ${EFFORTS.join(", ")}`);
-  }
+  const effort = (name: string, fallback: Effort): Effort => {
+    const raw = (process.env[name] ?? fallback).trim() as Effort;
+    if (!EFFORTS.includes(raw)) throw new Error(`${name} must be one of ${EFFORTS.join(", ")}`);
+    return raw;
+  };
+  const effortRaw = effort("TROONOOZ_EFFORT", "high");
 
   return {
     port: int("PORT", 8787),
     host: process.env.HOST ?? "127.0.0.1",
     model: process.env.TROONOOZ_MODEL?.trim() || "claude-opus-5-5",
     effort: effortRaw,
+    quickEffort: effort("TROONOOZ_QUICK_EFFORT", "medium"),
+    quickSearches: int("TROONOOZ_QUICK_SEARCHES", 3),
     fallbacks: bool("TROONOOZ_FALLBACKS", true),
     webSearchMaxUses: int("TROONOOZ_WEB_SEARCH_MAX_USES", 8),
     webFetchMaxUses: int("TROONOOZ_WEB_FETCH_MAX_USES", 5),

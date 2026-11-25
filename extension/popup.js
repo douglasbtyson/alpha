@@ -30,6 +30,11 @@ checkServer(serverUrl, token)
     showError(`Can't reach the troonooz server at ${serverUrl}: ${err.message}. Start it, or change the address in Settings.`);
   });
 
+// Quick/thorough applies to every action, including right-click checks.
+const quick = document.getElementById("quick");
+quick.checked = Boolean((await chrome.storage.local.get("quick")).quick);
+quick.addEventListener("change", () => chrome.storage.local.set({ quick: quick.checked }));
+
 const chips = [...document.querySelectorAll('input[name="focus"]')];
 for (const chip of chips) {
   chip.addEventListener("change", () => {

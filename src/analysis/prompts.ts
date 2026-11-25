@@ -78,3 +78,11 @@ export function focusInstruction(focus: FocusArea[]): string {
 
 export const NUDGE_SUBMIT =
   "Please finish now: call the submit_report tool with your complete assessment based on what you have found so far. Note anything you could not check in limitations.";
+
+export type CheckMode = "quick" | "thorough";
+
+export const QUICK_INSTRUCTION =
+  "Quick check requested: the user wants a fast answer. Verify only what matters most, with at most a few targeted searches " +
+  "on the central claim, the seller's reputation, or the image's origin, and skip reading pages unless it is essential. " +
+  "Keep the report short: at most 3 claims, 2-3 findings per media item, 2-3 recommendations, and one-sentence explanations. " +
+  "Note in limitations that this was a quick check.";

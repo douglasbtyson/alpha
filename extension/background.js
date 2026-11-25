@@ -131,6 +131,8 @@ async function submit(tab, parts) {
   if (parts.imageUrls?.length) fd.append("image_urls", JSON.stringify(parts.imageUrls));
   fd.append("focus", JSON.stringify(parts.focus ?? []));
   fd.append("source", "extension");
+  const { quick } = await chrome.storage.local.get("quick");
+  fd.append("mode", quick ? "quick" : "thorough");
 
   await toast(tab.id, "troonooz: sending to your troonooz server…");
   let res;

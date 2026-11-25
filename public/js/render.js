@@ -323,6 +323,13 @@ function renderSources(report) {
   );
 }
 
+function timingText(t) {
+  const s = (ms) => `${Math.round(ms / 1000)}s`;
+  const parts = [`researching ${s(t.research_ms)}`, `writing the report ${s(t.writing_ms)}`, `preparing ${s(t.prepare_ms)}`];
+  if (t.reuse_ms >= 500) parts.push(`checking earlier results ${s(t.reuse_ms)}`);
+  return `${s(t.total_ms)} in total: ${parts.join(", ")}`;
+}
+
 function renderResearch(record) {
   const r = record.research ?? { queries: [], fetched: [] };
   const u = record.usage ?? {};
@@ -349,6 +356,7 @@ function renderResearch(record) {
         u.input_tokens !== undefined ? ` · ${(u.input_tokens + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)).toLocaleString()} input / ${u.output_tokens.toLocaleString()} output tokens` : "",
         record.input?.web_research === false ? " · web research off" : "",
       ),
+      record.timing ? h("div", {}, h("strong", {}, "Time: "), timingText(record.timing)) : null,
       record.input?.notes?.length ? h("div", {}, h("strong", {}, "Processing notes: "), record.input.notes.join(" ")) : null,
     ),
   );
@@ -391,6 +399,7 @@ export function renderReport(root, record, actions) {
           { class: "verdict-rating" },
           badge(OVERALL, rep.verdict.rating, "badge-lg"),
           h("span", { class: "badge tone-neutral" }, `${rep.verdict.confidence[0].toUpperCase()}${rep.verdict.confidence.slice(1)} confidence`),
+          record.input?.mode === "quick" ? h("span", { class: "badge tone-caution", title: "Fewer searches and a shorter report than a thorough check" }, "Quick check") : null,
         ),
         h("h1", {}, rep.verdict.headline),
         h("p", { class: "verdict-summary" }, rep.summary),

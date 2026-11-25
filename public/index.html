@@ -82,6 +82,20 @@
           </div>
         </fieldset>
 
+        <fieldset class="field">
+          <legend class="field-label">How thorough?</legend>
+          <div class="segmented" role="radiogroup">
+            <label>
+              <input type="radio" name="mode" value="thorough" checked />
+              <span><strong>Thorough</strong><small>Verifies the key claims with several searches</small></span>
+            </label>
+            <label>
+              <input type="radio" name="mode" value="quick" />
+              <span><strong>Quick</strong><small>Faster: a few searches and a shorter report</small></span>
+            </label>
+          </div>
+        </fieldset>
+
         <label class="switch">
           <input type="checkbox" id="web-input" checked />
           <span class="switch-track" aria-hidden="true"></span>
@@ -92,7 +106,7 @@
 
         <div class="form-actions">
           <button type="submit" class="btn btn-primary" id="submit-button">Check it</button>
-          <span class="form-hint">Most checks take 30&ndash;120 seconds.</span>
+          <span class="form-hint" id="mode-hint">Thorough checks usually take 1&ndash;2 minutes.</span>
         </div>
       </form>
 
@@ -122,6 +136,7 @@
           </div>
         </div>
         <ol id="progress-steps" class="steps" aria-live="polite"></ol>
+        <div id="draft" class="draft" aria-live="polite" hidden></div>
       </section>
       <section id="match" class="card match-card" hidden></section>
       <section id="report-error" class="card error-card" role="alert" hidden></section>

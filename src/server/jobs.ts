@@ -55,9 +55,19 @@ export class Job extends EventEmitter {
     this.emit("event", e);
   }
 
+  /** The newest draft of the verdict, for viewers who connect while the report is being written. */
+  latestDraft: JobEvent | null = null;
+
   progress(event: ProgressEvent): void {
     if (this.status !== "running") return;
-    this.push({ type: "progress", at: new Date().toISOString(), event });
+    const e: JobEvent = { type: "progress", at: new Date().toISOString(), event };
+    if (event.type === "draft") {
+      // Drafts are superseded within a second; send them live but keep them out of the replay history.
+      this.latestDraft = e;
+      this.emit("event", e, true);
+      return;
+    }
+    this.push(e);
   }
 
   done(): void {

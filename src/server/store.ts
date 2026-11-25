@@ -20,6 +20,8 @@ export interface AnalysisRecord {
     source: InputSource;
     focus: FocusArea[];
     web_research: boolean;
+    /** Absent on reports made before quick checks existed (those were thorough). */
+    mode?: "quick" | "thorough";
     text_excerpt: string;
     urls: string[];
     page: { url: string; title: string } | null;
@@ -37,6 +39,8 @@ export interface AnalysisRecord {
   usage: AnalysisResult["usage"];
   turns: number;
   zooms: number;
+  /** Where the time went, in milliseconds. */
+  timing?: { prepare_ms: number; reuse_ms: number; research_ms: number; writing_ms: number; total_ms: number };
   /** Set when a user flags the result as possibly wrong; disputed reports are never reused. */
   disputed?: { at: string; note: string } | null;
   /** An earlier report this one was judged to be the same story as (kept so stories survive a rebuild). */
