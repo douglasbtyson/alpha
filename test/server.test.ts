@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import sharp from "sharp";
 import { demoStreamer } from "../src/analysis/demo.js";
 import { KnowledgeBase } from "../src/knowledge/base.js";
+import type { TriageRunner } from "../src/knowledge/triage.js";
+import type { Streamer } from "../src/analysis/analyzer.js";
 import { createApp, uiVersion } from "../src/server/app.js";
 import { mkdir, writeFile } from "node:fs/promises";
 import { JobStore } from "../src/server/jobs.js";
@@ -221,6 +223,89 @@ describe("HTTP API", () => {
       const blank = await solidPng(400, 300);
       await check(app, blank);
       expect((await check(app, blank)).status).toBe("done");
+    });
+  });
+
+  describe("stories", () => {
+    type Verdict = "high" | "medium" | "fail";
+    async function storyApp(verdict: Verdict) {
+      const config = testConfig({ dataDir: dir, demo: true });
+      const store = new ReportStore(dir);
+      await store.init();
+      kb = new KnowledgeBase(dir);
+      const prompts: string[] = [];
+      const demo = demoStreamer({ delayMs: 0 });
+      const streamer: Streamer = async (params, hooks) => {
+        prompts.push(JSON.stringify(params.messages[0]!.content));
+        return demo(params, hooks);
+      };
+      let triageCalls = 0;
+      const triage: TriageRunner = async (_ev, find) => {
+        triageCalls++;
+        if (verdict === "fail") throw new Error("overloaded");
+        const signature = { description: "shark photo on a flooded highway", claims: [], entities: [], search_terms: "shark flooded highway" };
+        const candidates = find("shark flooded highway hoax storm");
+        const top = candidates[0];
+        return {
+          signature,
+          candidates,
+          verdict: top ? { storyId: top.id, confidence: verdict, reason: "Same doctored shark photo." } : null,
+          model: "test",
+          usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0 },
+        };
+      };
+      const app = createApp({ config, streamer, store, jobs, knowledge: kb, triage, log: () => {} });
+      return { app, store, prompts, triageCalls: () => triageCalls };
+    }
+
+    async function submit(app: Parameters<typeof request>[0], image: Buffer, focus: string[] = []) {
+      const res = await request(app).post("/api/analyze").attach("files", image, "post.jpg").field("focus", JSON.stringify(focus)).expect(202);
+      return waitForJob(res.body.id);
+    }
+
+    it("recognises the same story in a different screenshot and links a fresh check to it", async () => {
+      const { app, store, triageCalls } = await storyApp("high");
+      const first = await submit(app, await photo(11));
+      expect(first.status).toBe("done");
+      expect(triageCalls()).toBe(0); // nothing to compare against yet
+
+      const second = await submit(app, await photo(12));
+      expect(triageCalls()).toBe(1);
+      expect(second.status).toBe("matched");
+      const match = (second.events.at(-1) as { match: { id: string; matched_on: string[]; story: { id: string; checks: number; reason: string } } }).match;
+      expect(match).toMatchObject({ id: first.id, matched_on: ["story"], story: { id: kb!.storyIdOf(first.id), checks: 1, reason: "Same doctored shark photo." } });
+
+      const rerun = await request(app).post(`/api/jobs/${second.id}/rerun`).expect(202);
+      const fresh = await waitForJob(rerun.body.id);
+      expect(fresh.status).toBe("done");
+      expect((await store.get(fresh.id))!.linked_to).toBe(first.id);
+      const report = await request(app).get(`/api/reports/${fresh.id}`).expect(200);
+      expect(report.body.story).toMatchObject({ id: kb!.storyIdOf(first.id), checks: 2 });
+      expect(report.body.story.members.map((m: { id: string }) => m.id).sort()).toEqual([first.id, fresh.id].sort());
+    });
+
+    it("passes likely-but-uncertain stories to the full check as context", async () => {
+      const { app, prompts } = await storyApp("medium");
+      await submit(app, await photo(13));
+      const second = await submit(app, await photo(14));
+      expect(second.status).toBe("done");
+      expect(prompts.at(-1)).toContain("STORY: Recycled hoax");
+    });
+
+    it("keeps going with a full check when triage fails", async () => {
+      const { app, triageCalls } = await storyApp("fail");
+      await submit(app, await photo(15));
+      const second = await submit(app, await photo(16));
+      expect(triageCalls()).toBe(1);
+      expect(second.status).toBe("done");
+    });
+
+    it("doesn't reuse a story check that covered a different focus, but still links the new report", async () => {
+      const { app } = await storyApp("high");
+      const first = await submit(app, await photo(17), ["media"]);
+      const second = await submit(app, await photo(18), ["news"]);
+      expect(second.status).toBe("done");
+      expect(kb!.storyIdOf(second.id)).toBe(kb!.storyIdOf(first.id));
     });
   });
 });

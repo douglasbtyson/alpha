@@ -85,13 +85,14 @@ Key files:
 | `src/knowledge/fingerprint.ts` | Image/video/link/text fingerprints and the two-stage image comparison |
 | `src/knowledge/base.ts` | SQLite knowledge base: instant matches, entity findings, full-text search, RDAP cache |
 | `src/knowledge/findings.ts` | Extracting entities from reports and formatting them for Claude |
+| `src/knowledge/triage.ts` | Story triage: the short pre-check that recognises a story already checked |
 | `src/server/app.ts` | HTTP API, job runner, SSE |
 | `public/` | Web app (vanilla JS, no build step) |
 | `extension/` | Chrome MV3 extension |
 
 ## Shared knowledge
 
-Every finished report feeds a SQLite database at `data/knowledge.sqlite`. This database is an index built from the JSON reports: delete it and it is rebuilt from them at the next start. It has two layers.
+Every finished report feeds a SQLite database at `data/knowledge.sqlite`. This database is an index built from the JSON reports: delete it, or upgrade to a version with a new database layout, and it is rebuilt from them at the next start. It has three layers.
 
 **1. Instant matches.** Before calling Claude, troonooz fingerprints each item in the submission and looks for an earlier report that covered the same content:
 
@@ -126,6 +127,18 @@ New checks use these findings in two ways:
 
 Findings are presented as dated leads with agreement counts (for example "seen in 3 checks: contradicted ×3"). Claude is told to re-verify anything stale, thin, disputed, or about a developing story.
 
+**3. Stories.** A story groups every check of the same claim, event, piece of media, or offer. Screenshots of one viral post taken on different phones, or a hoax photo reused with a new caption, end up as one story. Each report shows its story's other checks under **Related checks**.
+
+Stories need reading, not just fingerprints. So when the database holds at least one story, a short **triage** call to Claude (`TROONOOZ_TRIAGE_MODEL`, low effort, images at most 1568px) runs before the full check:
+1. Claude describes the material (summary, claims, named entities, search terms) and calls `find_stories`, which searches the story database. If nothing is similar, triage ends after this one call.
+2. If there are candidates, Claude sees each one's summary, verdict, and thumbnail, and calls `report_story_match` with a confidence. The submitted images are read from the prompt cache on this turn.
+3. With a **high**-confidence match to a story that is fresh, undisputed, used web research if the new request does, and covered the requested focus, the user sees **Already checked: same story** with the latest result and a **Check this one anyway** button.
+4. Otherwise, a **high** or **medium** match is passed to the full check as context, and with high confidence the new report joins that story.
+
+Reports also join a story automatically when they share a link, text, image, seller website, or identical claim with one of its reports. Triage is only an optimization: if it fails, the full check runs as usual.
+
+Each triage call has a cost. It pays off only when people often check the same stories, so watch the `triage:` lines in the server log (candidates, verdict, tokens). Turn it off with `TROONOOZ_STORY_TRIAGE=off`; the deterministic story grouping keeps working without it.
+
 **Report a problem.** The button on each report marks it as disputed. A disputed report is never reused for an instant match, and its findings carry a warning when they come up in later checks.
 
 The database also caches domain-registration (RDAP) lookups for 7 days. Turn the whole feature off with `TROONOOZ_KNOWLEDGE=off`.
@@ -153,7 +166,9 @@ All settings are environment variables; `.env` is loaded automatically. See `.en
 | `TROONOOZ_WEB_FETCH_MAX_USES` | `5` | Page fetches per check (0 disables) |
 | `TROONOOZ_MAX_ZOOMS` | `6` | `inspect_region` calls per check (0 disables) |
 | `TROONOOZ_RDAP` | `on` | Domain-age lookups via rdap.org |
-| `TROONOOZ_KNOWLEDGE` | `on` | Shared knowledge: instant matches and earlier findings |
+| `TROONOOZ_KNOWLEDGE` | `on` | Shared knowledge: instant matches, earlier findings, and stories |
+| `TROONOOZ_STORY_TRIAGE` | `on` | Short pre-check that recognises a story already checked from a different screenshot |
+| `TROONOOZ_TRIAGE_MODEL` | `claude-opus-5-5` | Model for story triage (always low effort) |
 | `TROONOOZ_MAX_FILES` / `_MAX_FILE_MB` | `20` / `100` | Upload limits |
 | `TROONOOZ_MAX_IMAGES` | `40` | Images sent to Claude per check (after tiling and frame sampling) |
 | `TROONOOZ_VIDEO_FRAMES` | `8` | Frames sampled per server-processed video |
@@ -181,7 +196,7 @@ All settings are environment variables; `.env` is loaded automatically. See `.en
 Other endpoints:
 
 - `GET /api/jobs/:id/events` is a Server-Sent Events stream of `progress` events (`status`, `thinking`, `search`, `fetch`, `lookup`, `zoom`, `writing`, `fallback`) that ends with `done`, `match` (an earlier report covers this content), or `error`. Because `EventSource` can't send headers, this endpoint also accepts the token as `?token=`.
-- `GET /api/reports/:id` returns the full record (report, inputs, thumbnails, automated signals, research log, token usage). `GET /api/reports` lists recent reports, and `DELETE /api/reports/:id` deletes one.
+- `GET /api/reports/:id` returns the full record (report, inputs, thumbnails, automated signals, research log, token usage) and its `story` (other checks of the same story). `GET /api/reports` lists recent reports, and `DELETE /api/reports/:id` deletes one.
 - `POST /api/jobs/:id/rerun` runs a fresh check on content from a matched job, without re-uploading it.
 - `POST /api/reports/:id/dispute` with `{"note": "..."}` flags a report as possibly wrong.
 - `GET /api/health` returns the server status, including knowledge-base counts.

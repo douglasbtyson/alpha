@@ -6,6 +6,7 @@ import { buildUserContent, type EvidenceImage, type PreparedEvidence } from "./e
 import { applyGrounding, UrlLedger } from "./grounding.js";
 import { zoomCrop } from "./images.js";
 import { NUDGE_SUBMIT, SYSTEM_PROMPT } from "./prompts.js";
+import { supportsFallbacks } from "../knowledge/triage.js";
 import { normalizeReport, ReportSchema, type FinalReport, type FocusArea } from "./schema.js";
 
 type MessageParams = Anthropic.Beta.Messages.MessageCreateParamsNonStreaming;
@@ -238,7 +239,7 @@ export async function analyze(
     cache_control: { type: "ephemeral" as const },
     tools,
     tool_choice: { type: "auto" as const },
-    ...(config.fallbacks ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const } : {}),
+    ...(config.fallbacks && supportsFallbacks(config.model) ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const } : {}),
   };
 
   const ledger = new UrlLedger();

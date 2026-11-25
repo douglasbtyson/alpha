@@ -269,6 +269,33 @@ function renderSignals(record) {
   return section("Automated checks", h("p", { class: "muted" }, "Metadata and domain records checked before the AI analysis. Missing metadata is normal and proves nothing."), h("ul", { class: "signals" }, items));
 }
 
+/** Other checks of the same story (claim, event, media, or offer). */
+function renderStory(record) {
+  const story = record.story;
+  if (!story || story.members.length < 2) return null;
+  const others = story.members.filter((m) => m.id !== record.id);
+  return section(
+    ["Related checks", h("span", { class: "badge tone-neutral" }, `${story.checks} checks of this story`)],
+    h("p", { class: "muted" }, "Other submissions troonooz recognised as the same story. Verdicts can differ as a story develops."),
+    h(
+      "ul",
+      { class: "related" },
+      others.slice(0, 10).map((m) =>
+        h(
+          "li",
+          {},
+          h(
+            "a",
+            { href: `#/report/${m.id}` },
+            h("span", { class: `score-pill tone-${scoreTone(m.trust_score, m.rating)}` }, m.trust_score),
+            h("span", { class: "related-text" }, h("span", { class: "related-title" }, m.headline), h("span", { class: "related-date" }, new Date(m.created_at).toLocaleString(), m.disputed ? " \u00b7 flagged as possibly wrong" : "")),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 function renderSources(report) {
   if (!report.sources.length) return null;
   return section(
@@ -407,6 +434,7 @@ export function renderReport(root, record, actions) {
     rep.vendor ? renderVendor(rep.vendor) : null,
     rep.media && rep.media.items.length ? renderMedia(rep.media) : null,
     rep.recommendations.length ? section("What to do", list(rep.recommendations)) : null,
+    renderStory(record),
     renderSignals(record),
     renderSources(rep),
     rep.limitations.length ? section("Limitations", list(rep.limitations)) : null,

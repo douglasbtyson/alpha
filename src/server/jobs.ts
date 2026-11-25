@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import type { ProgressEvent } from "../analysis/analyzer.js";
 import type { PreparedEvidence } from "../analysis/evidence.js";
 import type { AnalysisInput } from "../analysis/input.js";
+import type { StorySignature } from "../knowledge/triage.js";
 
 /** An earlier report that already covers this submission. */
 export interface MatchInfo {
@@ -13,6 +14,17 @@ export interface MatchInfo {
   rating: string;
   trust_score: number;
   thumbnail: string | null;
+  /** Present when the match is a story (same claim or media, different copy) rather than identical content. */
+  story?: { id: string; title: string; checks: number; reason: string };
+}
+
+/** What a matched job keeps so the user can still ask for a fresh check. */
+export interface Retained {
+  input: AnalysisInput;
+  evidence: PreparedEvidence;
+  /** The earlier report the fresh check should join as the same story. */
+  linkTo: string;
+  signature: StorySignature | null;
 }
 
 export type JobEvent =
@@ -28,7 +40,7 @@ export class Job extends EventEmitter {
   status: JobStatus = "running";
   finishedAt: number | null = null;
   /** Kept for matched jobs so the user can ask for a fresh check without re-uploading. */
-  retained: { input: AnalysisInput; evidence: PreparedEvidence } | null = null;
+  retained: Retained | null = null;
 
   constructor(
     readonly id: string,
@@ -54,7 +66,7 @@ export class Job extends EventEmitter {
     this.push({ type: "done", at: new Date().toISOString(), id: this.id });
   }
 
-  matched(match: MatchInfo, retained: { input: AnalysisInput; evidence: PreparedEvidence }): void {
+  matched(match: MatchInfo, retained: Retained): void {
     this.status = "matched";
     this.finishedAt = Date.now();
     this.retained = retained;

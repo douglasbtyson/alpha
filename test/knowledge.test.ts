@@ -8,6 +8,8 @@ import type { FocusArea, FinalReport, Report } from "../src/analysis/schema.js";
 import { ftsQuery, KnowledgeBase } from "../src/knowledge/base.js";
 import { imagePrint, textHash, type Fingerprint } from "../src/knowledge/fingerprint.js";
 import { extractFindings, formatGroups } from "../src/knowledge/findings.js";
+import type { StorySignature } from "../src/knowledge/triage.js";
+import { DatabaseSync } from "node:sqlite";
 import { ReportStore, type AnalysisRecord } from "../src/server/store.js";
 import { postScreenshot } from "./helpers.js";
 
@@ -36,6 +38,8 @@ function record(opts: {
   demo?: boolean;
   createdAt?: Date;
   disputed?: boolean;
+  linkedTo?: string;
+  signature?: StorySignature;
 }): AnalysisRecord {
   const report = opts.report ?? SAMPLE_NEWS_REPORT;
   return {
@@ -55,6 +59,7 @@ function record(opts: {
       thumbnails: [],
       notes: [],
       fingerprints: opts.prints ?? [],
+      story_signature: opts.signature ?? null,
     },
     signals: [],
     domains: [],
@@ -64,6 +69,7 @@ function record(opts: {
     turns: 1,
     zooms: 0,
     disputed: opts.disputed ? { at: T0.toISOString(), note: "" } : null,
+    linked_to: opts.linkedTo ?? null,
   };
 }
 
@@ -210,5 +216,101 @@ describe("maintenance", () => {
     expect(await kb.syncFrom(store)).toBe(2);
     expect(await kb.syncFrom(store)).toBe(0);
     expect(kb.stats().reports).toBe(2);
+  });
+});
+
+describe("stories", () => {
+  const otherNews = (headline: string, claim: string): Report => ({
+    ...SAMPLE_NEWS_REPORT,
+    verdict: { ...SAMPLE_NEWS_REPORT.verdict, headline },
+    content: { ...SAMPLE_NEWS_REPORT.content, author: "Other Page", description: headline },
+    news: { ...SAMPLE_NEWS_REPORT.news!, claims: [{ ...SAMPLE_NEWS_REPORT.news!.claims[0]!, claim }] },
+    media: null,
+  });
+
+  it("groups reports that share a seller website, and keeps unrelated ones apart", async () => {
+    const a = record({ report: SAMPLE_VENDOR_REPORT, createdAt: at(-5) });
+    const b = record({ report: { ...SAMPLE_VENDOR_REPORT, verdict: { ...SAMPLE_VENDOR_REPORT.verdict, headline: "Same scam store, new ad" } }, createdAt: at(-1) });
+    const c = record({ report: otherNews("Moon landing photo is real", "The 1969 photos are genuine") });
+    for (const r of [a, b, c]) {
+      kb.indexReport(r);
+      await kb.linkStory(r);
+    }
+    expect(kb.storyIdOf(a.id)).toBe(`st_${a.id}`);
+    expect(kb.storyIdOf(b.id)).toBe(kb.storyIdOf(a.id));
+    expect(kb.storyIdOf(c.id)).not.toBe(kb.storyIdOf(a.id));
+    expect(kb.storyCount(false)).toBe(2);
+    const story = kb.storyOf(b.id)!;
+    expect(story.card).toMatchObject({ checks: 2, title: "Same scam store, new ad", latestReport: b.id });
+    expect(story.members.map((m) => m.id)).toEqual([b.id, a.id]);
+  });
+
+  it("joins the story a report was explicitly linked to", async () => {
+    const first = record({ prints: [url("x.example/1")], createdAt: at(-2) });
+    const second = record({ report: otherNews("Shark photo again", "A shark swims in a flooded Miami street"), linkedTo: first.id });
+    kb.indexReport(first);
+    await kb.linkStory(first);
+    kb.indexReport(second);
+    await kb.linkStory(second);
+    expect(kb.storyIdOf(second.id)).toBe(kb.storyIdOf(first.id));
+  });
+
+  it("finds stories from a description of new content, including triage signatures", async () => {
+    const sig: StorySignature = { description: "Doctored photo of a great white shark beside cars", claims: [], entities: ["Hurricane Milo"], search_terms: "shark flood hurricane milo" };
+    const r = record({ signature: sig });
+    kb.indexReport(r);
+    await kb.linkStory(r);
+    const hits = kb.findStories("great white shark hurricane milo flood street", { demo: false, now: at(1) });
+    expect(hits[0]).toMatchObject({ id: kb.storyIdOf(r.id), reusable: true, verdict: "untrustworthy" });
+    expect(kb.findStories("tax refund text message", { demo: false })).toEqual([]);
+    expect(kb.findStories("shark", { demo: true })).toEqual([]);
+  });
+
+  it("represents a story by its newest undisputed check, and drops reuse when that is disputed", async () => {
+    const older = record({ prints: [url("y.example/1")], createdAt: at(-3) });
+    const newer = record({ prints: [url("y.example/1")], createdAt: at(-1) });
+    for (const r of [older, newer]) {
+      kb.indexReport(r);
+      await kb.linkStory(r);
+    }
+    const id = kb.storyIdOf(newer.id)!;
+    expect(kb.storyCard(id, at(0))!.latestReport).toBe(newer.id);
+    kb.dispute(newer.id, "");
+    expect(kb.storyCard(id, at(0))).toMatchObject({ latestReport: older.id, reusable: true, disputed: false });
+    kb.dispute(older.id, "");
+    expect(kb.storyCard(id, at(0))).toMatchObject({ reusable: false, disputed: true });
+  });
+
+  it("shrinks and then removes a story as its reports are deleted", async () => {
+    const a = record({ prints: [url("z.example/1")], createdAt: at(-2) });
+    const b = record({ prints: [url("z.example/1")], createdAt: at(-1) });
+    for (const r of [a, b]) {
+      kb.indexReport(r);
+      await kb.linkStory(r);
+    }
+    const id = kb.storyIdOf(a.id)!;
+    kb.removeReport(b.id);
+    expect(kb.storyCard(id)!.checks).toBe(1);
+    kb.removeReport(a.id);
+    expect(kb.storyCard(id)).toBeNull();
+    expect(kb.storyCount(false)).toBe(0);
+  });
+
+  it("rebuilds an older database layout and regroups existing reports into stories", async () => {
+    kb.close();
+    const old = new DatabaseSync(join(dir, "knowledge.sqlite"));
+    old.exec("DROP TABLE IF EXISTS reports; CREATE TABLE reports (id TEXT PRIMARY KEY, created_at TEXT); PRAGMA user_version = 1;");
+    old.close();
+    kb = new KnowledgeBase(dir);
+    const store = new ReportStore(dir);
+    await store.init();
+    const a = record({ report: SAMPLE_VENDOR_REPORT, createdAt: at(-2) });
+    const b = record({ report: SAMPLE_VENDOR_REPORT, createdAt: at(-1) });
+    await store.save(b);
+    await store.save(a);
+    expect(await kb.syncFrom(store)).toBe(2);
+    expect(kb.storyIdOf(a.id)).toBe(`st_${a.id}`);
+    expect(kb.storyIdOf(b.id)).toBe(`st_${a.id}`);
+    expect(kb.stats()).toMatchObject({ reports: 2, stories: 1 });
   });
 });

@@ -8,7 +8,8 @@ import { fileURLToPath } from "node:url";
 import { analyze, AnalysisError, type KnowledgeAccess, type Streamer } from "../analysis/analyzer.js";
 import { lookupDomain, type DomainInfo } from "../analysis/domain.js";
 import { evidenceDomains, InputError, prepareEvidence, resolveDomains, type PreparedEvidence } from "../analysis/evidence.js";
-import { formatGroups, groupUrls, type KnowledgeBase } from "../knowledge/base.js";
+import { focusCovers, formatGroups, formatStories, groupUrls, type KnowledgeBase, type StoryCard } from "../knowledge/base.js";
+import type { StorySignature, TriageRunner } from "../knowledge/triage.js";
 import {
   isHttpUrl,
   PageCaptureSchema,
@@ -62,6 +63,8 @@ export interface AppDeps {
   jobs: JobStore;
   /** Shared knowledge base (instant matches, earlier findings); null when disabled. */
   knowledge?: KnowledgeBase | null;
+  /** Story triage before the full analysis; null when disabled. */
+  triage?: TriageRunner | null;
   log?: (msg: string) => void;
 }
 
@@ -277,7 +280,11 @@ export function createApp(deps: AppDeps): express.Express {
     return info;
   };
 
-  const runJob = async (job: Job, input: AnalysisInput, opts: { reuse: boolean; evidence?: PreparedEvidence }) => {
+  const runJob = async (
+    job: Job,
+    input: AnalysisInput,
+    opts: { reuse: boolean; evidence?: PreparedEvidence; linkTo?: string; signature?: StorySignature | null },
+  ) => {
     const started = Date.now();
     const status = (message: string) => job.progress({ type: "status", message });
     try {
@@ -309,10 +316,53 @@ export function createApp(deps: AppDeps): express.Express {
               trust_score: summary.trust_score,
               thumbnail: summary.thumbnail,
             },
-            { input, evidence },
+            { input, evidence, linkTo: m.id, signature: null },
           );
           log(`[troonooz] ${job.id} matched earlier report ${m.id} (${m.matchedOn.join(", ")})`);
           return;
+        }
+      }
+
+      // Layer 1.5: the same story, recognised from a different screenshot, crop, or caption.
+      let linkTo: string | null = opts.linkTo ?? null;
+      let signature: StorySignature | null = opts.signature ?? null;
+      let storyLeads: StoryCard[] = [];
+      const readable = evidence.images.length + evidence.remoteImages.length > 0 || Boolean(evidence.text || evidence.page?.text || evidence.page?.selection);
+      if (kb && deps.triage && config.storyTriage && opts.reuse && !linkTo && readable && kb.storyCount(config.demo) > 0) {
+        status("Comparing with stories checked before");
+        try {
+          const t = await deps.triage(evidence, (text) => kb.findStories(text, { demo: config.demo }));
+          signature = t.signature;
+          log(
+            `[troonooz] ${job.id} triage: ${t.candidates.length} candidate(s), ${t.verdict?.storyId ? `${t.verdict.confidence} match ${t.verdict.storyId}` : "no match"} (${t.usage.input_tokens + t.usage.cache_read_input_tokens} in / ${t.usage.output_tokens} out tokens)`,
+          );
+          const card = t.verdict?.storyId ? t.candidates.find((c) => c.id === t.verdict!.storyId) : undefined;
+          if (card) storyLeads.push(card);
+          if (card && t.verdict!.confidence === "high") {
+            linkTo = card.latestReport;
+            const usable = card.reusable && (!input.webResearch || card.webResearch) && focusCovers(card.focus, input.focus);
+            const summary = usable ? store.summary(card.latestReport) : null;
+            if (summary) {
+              job.matched(
+                {
+                  id: card.latestReport,
+                  created_at: summary.created_at,
+                  matched_on: ["story"],
+                  headline: summary.headline,
+                  rating: summary.rating,
+                  trust_score: summary.trust_score,
+                  thumbnail: summary.thumbnail,
+                  story: { id: card.id, title: card.title, checks: card.checks, reason: t.verdict!.reason },
+                },
+                { input, evidence, linkTo: card.latestReport, signature },
+              );
+              log(`[troonooz] ${job.id} matched story ${card.id} (latest report ${card.latestReport})`);
+              return;
+            }
+          }
+        } catch (err) {
+          // Triage only saves work; never let it stop a check.
+          log(`[troonooz] ${job.id} story triage skipped: ${(err as Error).message}`);
         }
       }
 
@@ -323,14 +373,22 @@ export function createApp(deps: AppDeps): express.Express {
       if (kb) {
         const demo = config.demo;
         const related = await kb.related(evidence.fingerprints, evidenceDomains(evidence), { demo });
-        if (related.length) {
-          evidence.priorFindings = formatGroups(related);
-          status(`Found ${related.length} related finding${related.length === 1 ? "" : "s"} from earlier checks`);
+        const stories = [...storyLeads];
+        for (const c of kb.storiesOfReports([...(await kb.reportsSharing(evidence.fingerprints, demo)), ...(linkTo ? [linkTo] : [])])) {
+          if (!stories.some((x) => x.id === c.id)) stories.push(c);
+        }
+        const parts = [stories.length ? formatStories(stories) : "", related.length ? formatGroups(related) : ""].filter(Boolean);
+        if (parts.length) {
+          evidence.priorFindings = parts.join("\n");
+          const n = stories.length + related.length;
+          status(`Found ${n} related item${n === 1 ? "" : "s"} from earlier checks`);
         }
         knowledge = {
           search: (query, kind) => {
+            const storyHits = kind === "any" ? kb.findStories(query, { demo, limit: 3 }) : [];
             const groups = kb.search(query, kind, { demo });
-            return { text: formatGroups(groups), urls: groupUrls(groups), count: groups.length };
+            const text = [storyHits.length ? formatStories(storyHits) : "", groups.length ? formatGroups(groups) : ""].filter(Boolean).join("\n");
+            return { text, urls: groupUrls(groups), count: storyHits.length + groups.length };
           },
           priorUrls: groupUrls(related),
         };
@@ -361,6 +419,7 @@ export function createApp(deps: AppDeps): express.Express {
           thumbnails: evidence.thumbnails,
           notes: evidence.notes,
           fingerprints: evidence.fingerprints,
+          story_signature: signature,
         },
         signals: evidence.signals,
         domains: evidence.domains,
@@ -369,10 +428,12 @@ export function createApp(deps: AppDeps): express.Express {
         usage: result.usage,
         turns: result.turns,
         zooms: result.zooms,
+        linked_to: linkTo,
       };
       await store.save(record);
       try {
         kb?.indexReport(record);
+        await kb?.linkStory(record);
       } catch (err) {
         // The JSON report is the source of truth; the index is rebuilt from it at startup.
         console.error(`[troonooz] ${job.id} could not be added to the knowledge base:`, err);
@@ -414,7 +475,8 @@ export function createApp(deps: AppDeps): express.Express {
     }
     const job = jobs.create();
     res.status(202).json(jobLinks(job));
-    void runJob(job, previous.retained.input, { reuse: false, evidence: previous.retained.evidence });
+    const { input: retainedInput, evidence, linkTo, signature } = previous.retained;
+    void runJob(job, retainedInput, { reuse: false, evidence, linkTo, signature });
   });
 
   app.get("/api/jobs/:id/events", requireAuth, (req, res) => {
@@ -486,7 +548,11 @@ export function createApp(deps: AppDeps): express.Express {
       res.status(404).json({ error: "not_found", message: "No such report." });
       return;
     }
-    res.json(rec);
+    const story = kb?.storyOf(id);
+    res.json({
+      ...rec,
+      story: story ? { id: story.card.id, title: story.card.title, checks: story.card.checks, members: story.members } : null,
+    });
   });
 
   app.delete("/api/reports/:id", requireAuth, async (req, res) => {

@@ -6,6 +6,7 @@ import type { AnalysisResult } from "../analysis/analyzer.js";
 import type { FocusArea, FinalReport } from "../analysis/schema.js";
 import type { InputSource } from "../analysis/input.js";
 import type { Fingerprint } from "../knowledge/fingerprint.js";
+import type { StorySignature } from "../knowledge/triage.js";
 
 /** Everything persisted about one finished analysis. */
 export interface AnalysisRecord {
@@ -26,6 +27,8 @@ export interface AnalysisRecord {
     notes: string[];
     /** Content fingerprints for instant matching (absent on reports made before the feature). */
     fingerprints?: Fingerprint[];
+    /** Triage's description of the content, used to recognise the same story later. */
+    story_signature?: StorySignature | null;
   };
   signals: SignalEntry[];
   domains: DomainInfo[];
@@ -36,6 +39,8 @@ export interface AnalysisRecord {
   zooms: number;
   /** Set when a user flags the result as possibly wrong; disputed reports are never reused. */
   disputed?: { at: string; note: string } | null;
+  /** An earlier report this one was judged to be the same story as (kept so stories survive a rebuild). */
+  linked_to?: string | null;
 }
 
 export interface RecordSummary {

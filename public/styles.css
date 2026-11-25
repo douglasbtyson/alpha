@@ -1221,6 +1221,50 @@ details.research summary {
   font-size: 0.85rem;
 }
 
+.related {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.related a {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.related a:hover {
+  border-color: var(--accent);
+}
+
+.related .score-pill {
+  min-width: 44px;
+  font-size: 0.95rem;
+  padding: 5px 8px;
+}
+
+.related-text {
+  display: grid;
+  min-width: 0;
+}
+
+.related-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.related-date {
+  font-size: 0.8rem;
+  color: var(--text-3);
+}
+
 /* ---------- History ---------- */
 .history-head {
   margin-bottom: 18px;

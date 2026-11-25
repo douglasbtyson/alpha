@@ -19,6 +19,8 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     maxZooms: 6,
     rdap: false,
     knowledge: true,
+    storyTriage: true,
+    triageModel: "claude-opus-5-5",
     dataDir: "data",
     apiToken: null,
     demo: false,

@@ -23,6 +23,10 @@ export interface Config {
   rdap: boolean;
   /** Shared knowledge base: instant matches and findings from earlier checks. */
   knowledge: boolean;
+  /** Short pre-check that recognises a story already checked from different screenshots. */
+  storyTriage: boolean;
+  /** Model for story triage (low effort). */
+  triageModel: string;
   /** Where finished reports are persisted as JSON. */
   dataDir: string;
   /** Optional bearer token required on /api requests. */
@@ -74,6 +78,8 @@ export function loadConfig(): Config {
     maxZooms: int("TROONOOZ_MAX_ZOOMS", 6),
     rdap: bool("TROONOOZ_RDAP", true),
     knowledge: bool("TROONOOZ_KNOWLEDGE", true),
+    storyTriage: bool("TROONOOZ_STORY_TRIAGE", true),
+    triageModel: process.env.TROONOOZ_TRIAGE_MODEL?.trim() || "claude-opus-5-5",
     dataDir: process.env.TROONOOZ_DATA_DIR ?? "data",
     apiToken: process.env.TROONOOZ_API_TOKEN?.trim() || null,
     demo: bool("TROONOOZ_DEMO", false),

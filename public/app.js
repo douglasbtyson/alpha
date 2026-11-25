@@ -204,7 +204,7 @@ async function submitCheck(form) {
 }
 
 /* ---------------- Report view ---------------- */
-const MATCH_WORDS = { image: "image", video: "video", url: "link", text: "text" };
+const MATCH_WORDS = { image: "image", video: "video", url: "link", text: "text", story: "story" };
 
 function stepFor(event) {
   switch (event.type) {
@@ -253,7 +253,8 @@ function renderReportView(id) {
     const tone = scoreTone(m.trust_score, m.rating);
     const [label] = OVERALL[m.rating] ?? [m.rating];
     const what = [...new Set(m.matched_on.map((k) => MATCH_WORDS[k] ?? k))].join(" and ");
-    const rerun = h("button", { type: "button", class: "btn" }, "Check again anyway");
+    const story = m.story;
+    const rerun = h("button", { type: "button", class: "btn" }, story ? "Check this one anyway" : "Check again anyway");
     rerun.addEventListener("click", async () => {
       rerun.disabled = true;
       rerun.textContent = "Starting\u2026";
@@ -265,9 +266,21 @@ function renderReportView(id) {
       }
     });
     box.hidden = false;
+    const intro = story
+      ? [
+          h("h2", {}, "Already checked: same story"),
+          h(
+            "p",
+            {},
+            `This looks like the same story as ${story.checks === 1 ? "an earlier check" : `${story.checks} earlier checks`}. ${story.reason} Here is the latest result (${timeAgo(m.created_at)}), at no cost and with no wait.`,
+          ),
+        ]
+      : [
+          h("h2", {}, "Already checked"),
+          h("p", {}, `This is the same ${what} as a check from ${timeAgo(m.created_at)}. Here is that result, at no cost and with no wait.`),
+        ];
     box.replaceChildren(
-      h("h2", {}, "Already checked"),
-      h("p", {}, `This is the same ${what} as a check from ${timeAgo(m.created_at)}. Here is that result, at no cost and with no wait.`),
+      ...intro,
       h(
         "a",
         { class: "match-report", href: `#/report/${m.id}` },
@@ -279,7 +292,9 @@ function renderReportView(id) {
       h(
         "p",
         { class: "muted match-note" },
-        "Earlier results are reused only when everything you submitted matches, the earlier check is recent enough, and nobody has flagged it as wrong. Things change, so check again if it matters.",
+        story
+          ? "This match was made by AI from what the content says and shows, not from an identical copy. If anything here is different (a new detail, date, or price), check this one."
+          : "Earlier results are reused only when everything you submitted matches, the earlier check is recent enough, and nobody has flagged it as wrong. Things change, so check again if it matters.",
       ),
     );
   };
