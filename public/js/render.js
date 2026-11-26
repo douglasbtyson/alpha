@@ -160,7 +160,12 @@ function scoreBox(label, score, ratingMap, rating, note, targetId) {
       type: "button",
       class: "card score-box",
       "aria-label": `${label}: ${score} out of 100, ${ratingLabel}. Show details.`,
-      onclick: () => document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      onclick: () => {
+        const target = document.getElementById(targetId);
+        if (!target) return;
+        target.open = true;
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+      },
     },
     h("span", { class: "score-box-head" }, h("span", { class: "score-box-label" }, label), h("span", { class: "score-box-value", style: { color: TONE_VAR[tone] } }, score)),
     h("span", { class: "score-box-track", "aria-hidden": "true" }, fill),
@@ -178,9 +183,14 @@ function renderFlags(rep) {
   const green = rep.green_flags ?? rep.vendor?.green_flags ?? [];
   if (!red.length && !green.length) return null;
   const urgent = (s) => s === "critical" || s === "high";
-  return h(
-    "section",
-    { class: "card flags-top two-col" },
+  const title = [
+    "Red & green flags",
+    h("span", { class: "badge tone-bad" }, `${red.length} red`),
+    h("span", { class: "badge tone-good" }, `${green.length} green`),
+  ];
+  return section("flags", title, h(
+    "div",
+    { class: "two-col" },
     h(
       "div",
       { class: "flag-col bad" },
@@ -194,7 +204,7 @@ function renderFlags(rep) {
         : h("p", { class: "muted" }, "None found"),
     ),
     h("div", { class: "flag-col good" }, h("h3", {}, "Green flags"), green.length ? list(green) : h("p", { class: "muted" }, "None found")),
-  );
+  ), { open: true, class: "flags-top" });
 }
 
 /** Article confidence, vendor score, and product quality, each only when it applies. */
@@ -219,13 +229,41 @@ function scoreBar(score, label = "Score") {
   );
 }
 
-function section(title, ...body) {
-  return h("section", { class: "card section" }, h("h2", {}, ...[title].flat()), ...body);
+const SECTIONS_KEY = "troonooz.sections";
+
+function savedSections() {
+  try {
+    return JSON.parse(localStorage.getItem(SECTIONS_KEY) ?? "{}") ?? {};
+  } catch {
+    return {};
+  }
 }
 
-function sectionWithId(id, title, ...body) {
-  const el = section(title, ...body);
-  el.id = id;
+function rememberSection(key, open) {
+  try {
+    localStorage.setItem(SECTIONS_KEY, JSON.stringify({ ...savedSections(), [key]: open }));
+  } catch {
+    // Private browsing or blocked storage: sections just use their defaults next time.
+  }
+}
+
+/**
+ * A report section that opens and closes when you tap its heading. Summary-level sections start
+ * open and detailed ones closed; whatever you choose for a kind of section is remembered.
+ */
+function section(key, title, body, opts = {}) {
+  const el = h(
+    "details",
+    { class: `card section ${opts.class ?? ""}`.trim(), id: opts.id, "data-section": key },
+    h(
+      "summary",
+      { onclick: () => rememberSection(key, !el.open) },
+      h("h2", {}, ...[title].flat()),
+      h("span", { class: "chevron", "aria-hidden": "true" }),
+    ),
+    h("div", { class: "section-body" }, ...[body].flat()),
+  );
+  el.open = savedSections()[key] ?? Boolean(opts.open);
   return el;
 }
 
@@ -271,32 +309,39 @@ function renderNews(news, sourceSeen) {
       )
     : h("p", { class: "muted" }, "No specific checkable claims were identified.");
 
-  return sectionWithId(
-    "sec-news",
+  return section(
+    "news",
     ["News & claims", badge(NEWS, news.rating), scoreBar(news.score)],
-    h("h3", {}, "Claims checked"),
-    claims,
-    news.source_assessment ? [h("h3", {}, "Who published it"), h("p", {}, news.source_assessment)] : null,
-    news.context ? [h("h3", {}, "Missing context"), h("p", {}, news.context)] : null,
-    news.manipulation_tactics.length ? [h("h3", {}, "Manipulation tactics"), list(news.manipulation_tactics)] : null,
+    [
+      h("h3", {}, "Claims checked"),
+      claims,
+      news.source_assessment ? [h("h3", {}, "Who published it"), h("p", {}, news.source_assessment)] : null,
+      news.context ? [h("h3", {}, "Missing context"), h("p", {}, news.context)] : null,
+      news.manipulation_tactics.length ? [h("h3", {}, "Manipulation tactics"), list(news.manipulation_tactics)] : null,
+    ],
+    { id: "sec-news" },
   );
 }
 
 function renderVendor(v) {
   const identity = [v.name, v.website].filter(Boolean).join(" · ");
-  return sectionWithId(
-    "sec-vendor",
+  return section(
+    "vendor",
     ["Seller / vendor", badge(VENDOR, v.rating), scoreBar(v.score)],
-    identity ? h("p", {}, h("strong", {}, identity)) : null,
-    v.reputation_summary ? [h("h3", {}, "Reputation"), h("p", {}, v.reputation_summary)] : null,
-    v.offer_assessment ? [h("h3", {}, "The offer"), h("p", {}, v.offer_assessment)] : null,
+    [
+      identity ? h("p", {}, h("strong", {}, identity)) : null,
+      v.reputation_summary ? [h("h3", {}, "Reputation"), h("p", {}, v.reputation_summary)] : null,
+      v.offer_assessment ? [h("h3", {}, "The offer"), h("p", {}, v.offer_assessment)] : null,
+    ],
+    { id: "sec-vendor" },
   );
 }
 
 function renderProduct(p) {
-  return sectionWithId(
-    "sec-product",
+  return section(
+    "product",
     ["Product quality", badge(PRODUCT, p.rating), scoreBar(p.score, "Product quality")],
+    [
     p.name ? h("p", {}, h("strong", {}, p.name)) : null,
     p.summary ? h("p", {}, p.summary) : null,
     p.pros.length || p.cons.length
@@ -307,12 +352,15 @@ function renderProduct(p) {
           h("div", { class: "flag-col bad" }, h("h3", {}, "Drawbacks"), p.cons.length ? list(p.cons) : h("p", { class: "muted" }, "None found")),
         )
       : null,
+    ],
+    { id: "sec-product" },
   );
 }
 
 function renderMedia(media) {
   return section(
-    "Image & video authenticity",
+    "media",
+    ["Image & video authenticity", media.items.length > 1 ? h("span", { class: "badge tone-neutral" }, `${media.items.length} items`) : null],
     media.items.map((m) =>
       h(
         "div",
@@ -367,7 +415,7 @@ function renderSignals(record) {
     items.push(h("li", {}, h("strong", {}, `${d.domain}: `), young ? h("span", { class: "signal-provenance" }, text) : text));
   }
   if (!items.length) return null;
-  return section("Automated checks", h("p", { class: "muted" }, "Checked before the AI analysis. Missing metadata is normal."), h("ul", { class: "signals" }, items));
+  return section("signals", "Automated checks", [h("p", { class: "muted" }, "Checked before the AI analysis. Missing metadata is normal."), h("ul", { class: "signals" }, items)]);
 }
 
 /** What moved the score, and what would raise it. Older reports have neither. */
@@ -385,10 +433,7 @@ function scoreWhy(verdict) {
 /** The bottom line and plain-language context, with deeper sections behind "Explain more". Older reports have no background. */
 function renderWhatsGoingOn(rep) {
   const bg = rep.background;
-  return h(
-    "section",
-    { class: "card section background" },
-    h("h2", {}, "What's going on"),
+  return section("background", "What's going on", [
     h("p", { class: "background-summary" }, rep.summary),
     bg?.simple ? h("p", { class: "background-simple" }, bg.simple) : null,
     scoreWhy(rep.verdict),
@@ -404,7 +449,7 @@ function renderWhatsGoingOn(rep) {
           ),
         )
       : null,
-  );
+  ], { open: true, class: "background" });
 }
 
 /** Other checks of the same story (claim, event, media, or offer). */
@@ -412,8 +457,7 @@ function renderStory(record) {
   const story = record.story;
   if (!story || story.members.length < 2) return null;
   const others = story.members.filter((m) => m.id !== record.id);
-  return section(
-    ["Related checks", h("span", { class: "badge tone-neutral" }, `${story.checks} checks of this story`)],
+  return section("related", ["Related checks", h("span", { class: "badge tone-neutral" }, `${story.checks} checks of this story`)], [
     h("p", { class: "muted" }, "Other submissions of the same story. Verdicts can change as it develops."),
     h(
       "ul",
@@ -431,13 +475,14 @@ function renderStory(record) {
         ),
       ),
     ),
-  );
+  ]);
 }
 
 function renderSources(report) {
   if (!report.sources.length) return null;
   return section(
-    "Sources",
+    "sources",
+    ["Sources", h("span", { class: "badge tone-neutral" }, String(report.sources.length))],
     h(
       "ol",
       { class: "sources" },
@@ -472,14 +517,10 @@ function renderResearch(record) {
   const r = record.research ?? { queries: [], fetched: [] };
   const u = record.usage ?? {};
   const secs = record.duration_ms ? Math.round(record.duration_ms / 1000) : null;
-  return h(
-    "details",
-    { class: "card research" },
-    h(
-      "summary",
-      {},
-      `How this check was done · ${record.input?.mode === "quick" ? "Quick check · " : ""}${r.queries.length} search${r.queries.length === 1 ? "" : "es"}, ${r.fetched.length} page${r.fetched.length === 1 ? "" : "s"} read${record.zooms ? `, ${record.zooms} zoom-in${record.zooms === 1 ? "" : "s"}` : ""}${r.lookups?.length ? `, ${r.lookups.length} earlier-findings lookup${r.lookups.length === 1 ? "" : "s"}` : ""}`,
-    ),
+  const done = `${record.input?.mode === "quick" ? "Quick check \u00b7 " : ""}${r.queries.length} search${r.queries.length === 1 ? "" : "es"}, ${r.fetched.length} page${r.fetched.length === 1 ? "" : "s"} read${record.zooms ? `, ${record.zooms} zoom-in${record.zooms === 1 ? "" : "s"}` : ""}${r.lookups?.length ? `, ${r.lookups.length} earlier-findings lookup${r.lookups.length === 1 ? "" : "s"}` : ""}`;
+  return section(
+    "research",
+    ["How this check was done", h("span", { class: "badge tone-neutral" }, done)],
     h(
       "div",
       { class: "research-body" },
@@ -506,16 +547,6 @@ export function renderReport(root, record, actions) {
   const seen = new Set(rep.sources.filter((s) => s.seen).map((s) => s.url));
   const unseen = new Set(record.research?.unseenCitedUrls ?? []);
   const sourceSeen = (u) => seen.has(u) || !unseen.has(u);
-  const thumbs = (record.input?.thumbnails ?? []).filter((t) => t.dataUrl || t.url);
-  const c = rep.content;
-
-  const facts = [
-    ["Type", CONTENT_TYPES[c.type] ?? c.type],
-    ["Platform", c.platform],
-    ["Posted by", c.author],
-    ["Published", c.published],
-  ].filter(([, v]) => v);
-
   const children = [
     record.demo ? h("div", { class: "demo-flag", role: "note" }, "Demo mode: this is a fixed sample report, not an analysis of what was submitted.") : null,
     record.disputed
@@ -547,39 +578,15 @@ export function renderReport(root, record, actions) {
     scoreBoxes(rep),
     renderWhatsGoingOn(rep),
 
-    section(
-      "What was checked",
-      h(
-        "div",
-        { class: "content-card" },
-        thumbs.length
-          ? h(
-              "div",
-              { class: "thumbs" },
-              thumbs.map((t) =>
-                h(
-                  "figure",
-                  { class: "thumb" },
-                  h("img", { src: t.dataUrl ?? t.url, alt: t.label, loading: "lazy", referrerpolicy: "no-referrer" }),
-                  h("figcaption", {}, h("span", { class: "thumb-id" }, t.id), ` ${t.label}`),
-                ),
-              ),
-            )
-          : null,
-        facts.length ? h("dl", { class: "facts" }, facts.map(([k, v]) => h("div", {}, h("dt", {}, k), h("dd", {}, v)))) : null,
-        h("p", {}, c.description),
-        record.input?.page?.url ? h("p", { class: "muted" }, "Page: ", externalLink(record.input.page.url, record.input.page.title || record.input.page.url)) : null,
-      ),
-    ),
     rep.news ? renderNews(rep.news, sourceSeen) : null,
     rep.vendor ? renderVendor(rep.vendor) : null,
     rep.product ? renderProduct(rep.product) : null,
     rep.media && rep.media.items.length ? renderMedia(rep.media) : null,
-    rep.recommendations.length ? section("What to do", list(rep.recommendations)) : null,
+    rep.recommendations.length ? section("next", "What to do", list(rep.recommendations), { open: true }) : null,
     renderStory(record),
     renderSignals(record),
     renderSources(rep),
-    rep.limitations.length ? section("Limitations", list(rep.limitations)) : null,
+    rep.limitations.length ? section("limitations", "Limitations", list(rep.limitations)) : null,
     renderResearch(record),
     h(
       "div",
