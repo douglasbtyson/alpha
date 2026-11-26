@@ -26,7 +26,7 @@ You need:
 
 Steps, in PowerShell from the troonooz folder:
 
-1. **Pick your app's ID.** Open `mobile/app.json` and change `"bundleIdentifier": "com.example.troonooz"` to something only you would use, such as `com.yourname.troonooz` (letters, numbers, dots, and hyphens).
+1. **Your app's ID** is `com.troonooz.app` (`ios.bundleIdentifier` in `mobile/app.json`), and the Expo project ID is already filled in. Apple ties the app to this ID for good, so change it only before your first build, if at all.
 2. **Install and sign in:**
    ```
    cd mobile
@@ -56,7 +56,7 @@ Once the app is on TestFlight, Expo can build and send every new version by itse
 
 One-time setup:
 
-1. **Put your app's details in the repository.** Expo builds from GitHub, so the app ID and Expo project ID must be there, not just on your PC. Tell Claude your app ID (from step 1 above) and the project ID that `eas build` created (shown on your project's page at [expo.dev](https://expo.dev), and in `mobile/app.json` under `extra.eas.projectId` on your PC), and ask for them to be added.
+1. **App details in the repository:** done. The app ID and the Expo project ID are in `mobile/app.json`, so Expo's builds from GitHub use them too.
 2. **Do the first build and submission by hand** (steps 3 and 4 above). This stores the signing certificates, and the App Store Connect API key that `eas submit` offers to create, on Expo's servers, so later builds need nobody at the keyboard. Let `eas submit` create the API key when it asks.
 3. **Add the App Store Connect app number.** In [App Store Connect](https://appstoreconnect.apple.com) → your app → **App Information**, copy the **Apple ID** (a number). Ask Claude to add it to `mobile/eas.json` as `ascAppId`, so submissions never need to ask which app.
 4. **Connect GitHub to Expo.** On [expo.dev](https://expo.dev) → your project → **Project settings** → **GitHub**, connect the repository, and set the **base directory** to `mobile`.
