@@ -752,9 +752,22 @@ input:focus {
 }
 
 /* ---------- Background explanation ---------- */
+.background-summary,
 .background-simple {
   font-size: 1.05rem;
   line-height: 1.6;
+}
+
+.background-summary {
+  color: var(--text);
+}
+
+.background-simple {
+  color: var(--text-2);
+}
+
+.background .score-why {
+  margin: 4px 0 8px;
 }
 
 .explain summary {

@@ -298,16 +298,17 @@ function scoreWhy(verdict) {
   );
 }
 
-/** Plain-language context, with deeper sections behind "Explain more". Older reports have none. */
-function renderBackground(rep) {
+/** The bottom line and plain-language context, with deeper sections behind "Explain more". Older reports have no background. */
+function renderWhatsGoingOn(rep) {
   const bg = rep.background;
-  if (!bg || !bg.simple) return null;
   return h(
     "section",
     { class: "card section background" },
     h("h2", {}, "What's going on"),
-    h("p", { class: "background-simple" }, bg.simple),
-    bg.sections.length
+    h("p", { class: "background-summary" }, rep.summary),
+    bg?.simple ? h("p", { class: "background-simple" }, bg.simple) : null,
+    scoreWhy(rep.verdict),
+    bg?.sections?.length
       ? h(
           "details",
           { class: "explain" },
@@ -393,7 +394,7 @@ function renderResearch(record) {
     h(
       "summary",
       {},
-      `How this check was done · ${r.queries.length} search${r.queries.length === 1 ? "" : "es"}, ${r.fetched.length} page${r.fetched.length === 1 ? "" : "s"} read${record.zooms ? `, ${record.zooms} zoom-in${record.zooms === 1 ? "" : "s"}` : ""}${r.lookups?.length ? `, ${r.lookups.length} earlier-findings lookup${r.lookups.length === 1 ? "" : "s"}` : ""}`,
+      `How this check was done · ${record.input?.mode === "quick" ? "Quick check · " : ""}${r.queries.length} search${r.queries.length === 1 ? "" : "es"}, ${r.fetched.length} page${r.fetched.length === 1 ? "" : "s"} read${record.zooms ? `, ${record.zooms} zoom-in${record.zooms === 1 ? "" : "s"}` : ""}${r.lookups?.length ? `, ${r.lookups.length} earlier-findings lookup${r.lookups.length === 1 ? "" : "s"}` : ""}`,
     ),
     h(
       "div",
@@ -454,14 +455,11 @@ export function renderReport(root, record, actions) {
           rep.verdict.rating === "nothing_to_check"
             ? null
             : h("span", { class: "badge tone-neutral" }, `${rep.verdict.confidence[0].toUpperCase()}${rep.verdict.confidence.slice(1)} confidence`),
-          record.input?.mode === "quick" ? h("span", { class: "badge tone-caution", title: "Fewer searches and a shorter report than a thorough check" }, "Quick check") : null,
         ),
         h("h1", {}, rep.verdict.headline),
-        h("p", { class: "verdict-summary" }, rep.summary),
-        scoreWhy(rep.verdict),
       ),
     ),
-    renderBackground(rep),
+    renderWhatsGoingOn(rep),
     rep.red_flags.length
       ? section(
           "Red flags",

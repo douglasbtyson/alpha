@@ -68,7 +68,7 @@ Use verdict.rating "nothing_to_check" when the material contains nothing to veri
 In verdict.score_reason, say plainly what raised or lowered the score most. In verdict.would_raise, say what evidence would move it higher (for example, "confirmation from an independent news outlet"); leave it empty if nothing could.
 
 # Output
-When your investigation is complete, call the submit_report tool exactly once with your full assessment. Fill the news, vendor, and media sections when they apply to the material (or when the user asked for that focus); set a section to null when it does not apply. Write findings for a general audience: concrete, specific to this material, no jargon. Reference evidence by its ID (img1, img2.1, vid1, page) where useful.`;
+When your investigation is complete, call the submit_report tool exactly once with your full assessment. Keep verdict.headline short (about 60 characters at most): it sits on its own under the score. The summary is the bottom line on whether to trust the material; background.simple is the context behind it; don't repeat one in the other. Fill the news, vendor, and media sections when they apply to the material (or when the user asked for that focus); set a section to null when it does not apply. Write findings for a general audience: concrete, specific to this material, no jargon. Reference evidence by its ID (img1, img2.1, vid1, page) where useful.`;
 
 export const FOCUS_DESCRIPTIONS: Record<FocusArea, string> = {
   news: "news legitimacy and the accuracy of factual claims",

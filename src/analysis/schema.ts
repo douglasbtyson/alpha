@@ -181,7 +181,9 @@ export const ReportSchema = z.object({
     rating: z.enum(OVERALL_RATINGS),
     trust_score: score("Overall trustworthiness (see rubric in the instructions)."),
     confidence: z.enum(CONFIDENCE_LEVELS),
-    headline: z.string().describe("One-line verdict, at most ~90 characters."),
+    headline: z
+      .string()
+      .describe('Short verdict, at most about 60 characters, e.g. "Accurate: Musk Foundation matched Austin\'s $500K" or "Recycled hoax: doctored shark photo".'),
     score_reason: z
       .string()
       .describe("One or two plain sentences: what raised or lowered the score most. For nothing_to_check, why there is nothing to verify."),
