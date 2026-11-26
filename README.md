@@ -89,6 +89,25 @@ Two Windows settings help keep troonooz reachable:
 
 If troonooz is already running and you start a second copy, the second copy says so and exits.
 
+### Keep troonooz up to date automatically
+
+A troonooz folder downloaded as a zip has to be downloaded again for every change. Turn it into a Git copy once and it updates itself from GitHub each time it starts:
+
+1. Install Git (once), in PowerShell:
+   ```
+   winget install --id Git.Git -e --source winget
+   ```
+   Then close PowerShell and open it again.
+2. Close the troonooz window if it's open. Then, from the troonooz folder:
+   ```
+   .\scripts\windows\switch-to-git.cmd
+   ```
+   If a window asks you to sign in to GitHub, do so (it's remembered). Your `.env`, your `data` folder (reports and the knowledge base), and installed packages are kept; only troonooz's own files are replaced with the latest version.
+
+From then on, every time troonooz starts (at sign-in, with auto-start), it first downloads any changes, installs new packages if needed, and then starts. If the PC is offline or GitHub needs you to sign in again, it starts the version you have and says so in its window.
+
+To update right away, run `.\scripts\windows\update.cmd`. troonooz runs in a mode that reloads itself when its files change, so most updates apply immediately; if an update adds packages, it tells you to close the troonooz window and start it again.
+
 ### Install the browser extension
 
 1. Open `chrome://extensions` and turn on **Developer mode**.

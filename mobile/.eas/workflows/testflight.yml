@@ -1,0 +1,29 @@
+# Builds the iPhone app in Expo's cloud and sends it to TestFlight.
+#
+# Runs by itself when a push to one of these branches changes something in mobile/,
+# and can be started by hand from the project's Workflows page on expo.dev, or with:
+#   npx eas-cli@latest workflow:run .eas/workflows/testflight.yml   (from the mobile folder)
+#
+# One-time setup is in mobile/README.md ("Automatic TestFlight builds").
+name: Send to TestFlight
+
+on:
+  push:
+    branches: ['main', 'claude/troonooz-news-evaluator-8v50ln']
+    # Server-only changes don't use up builds (the Free plan includes 15 iPhone builds a month).
+    paths: ['mobile/**']
+  workflow_dispatch: {}
+
+jobs:
+  build_ios:
+    name: Build the iPhone app
+    type: build
+    params:
+      platform: ios
+      profile: production
+  submit_ios:
+    name: Send it to TestFlight
+    needs: [build_ios]
+    type: submit
+    params:
+      build_id: ${{ needs.build_ios.outputs.build_id }}

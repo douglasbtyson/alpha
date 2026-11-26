@@ -46,9 +46,24 @@ Steps, in PowerShell from the troonooz folder:
 5. **Install it:** on your iPhone, install **TestFlight** from the App Store. In [App Store Connect](https://appstoreconnect.apple.com) → your app → **TestFlight**, add yourself under **Internal Testing**. Open the invitation on your iPhone and tap **Install**.
 6. **Point your Shortcut at the app:** in the Shortcuts app, open **Check with troonooz**, and in **Get Dictionary Value** change the key from `open_url` to `app_url`. Now Back Tap opens checks in troonooz. The first one also tells the app your server's address.
 
-To update the app later, repeat steps 3 and 4 (the build number goes up by itself).
+To update the app later, repeat steps 3 and 4 (the build number goes up by itself), or set up automatic builds below.
 
 If your troonooz server uses an API token, enter it in the app's Settings. It's kept in the iPhone's Keychain and only sent to that server.
+
+## Automatic TestFlight builds
+
+Once the app is on TestFlight, Expo can build and send every new version by itself: when a change to the app (anything in `mobile/`) is pushed to GitHub, Expo builds it in the cloud and sends it to TestFlight, and the TestFlight app on your iPhone offers the update. Changes that only touch the server don't start a build, so they don't use up your builds. The workflow is `.eas/workflows/testflight.yml`.
+
+One-time setup:
+
+1. **Put your app's details in the repository.** Expo builds from GitHub, so the app ID and Expo project ID must be there, not just on your PC. Tell Claude your app ID (from step 1 above) and the project ID that `eas build` created (shown on your project's page at [expo.dev](https://expo.dev), and in `mobile/app.json` under `extra.eas.projectId` on your PC), and ask for them to be added.
+2. **Do the first build and submission by hand** (steps 3 and 4 above). This stores the signing certificates, and the App Store Connect API key that `eas submit` offers to create, on Expo's servers, so later builds need nobody at the keyboard. Let `eas submit` create the API key when it asks.
+3. **Add the App Store Connect app number.** In [App Store Connect](https://appstoreconnect.apple.com) → your app → **App Information**, copy the **Apple ID** (a number). Ask Claude to add it to `mobile/eas.json` as `ascAppId`, so submissions never need to ask which app.
+4. **Connect GitHub to Expo.** On [expo.dev](https://expo.dev) → your project → **Project settings** → **GitHub**, connect the repository, and set the **base directory** to `mobile`.
+
+After that, you don't need to run anything. To build without a change (for example, to retry a failed build), open your project's **Workflows** page on expo.dev and run **Send to TestFlight**, or run `npx.cmd eas-cli@latest workflow:run .eas/workflows/testflight.yml` from the `mobile` folder.
+
+Each run uses one of your plan's iPhone builds (15 a month on Expo's Free plan). If pushes to `mobile/` don't start a build, run it by hand as above and ask Claude to check the workflow's trigger.
 
 ## How it's put together
 
