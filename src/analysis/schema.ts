@@ -94,7 +94,7 @@ const score = (what: string) =>
 const ClaimSchema = z.object({
   claim: z.string().describe("The checkable factual claim, quoted or closely paraphrased."),
   rating: z.enum(CLAIM_RATINGS),
-  explanation: z.string().describe("What the evidence shows, in 1-3 plain sentences."),
+  explanation: z.string().describe("What the evidence shows, in one short sentence (under 25 words)."),
   source_urls: z
     .array(z.string())
     .describe("URLs from your research that support this rating. Only URLs you actually saw."),
@@ -103,16 +103,16 @@ const ClaimSchema = z.object({
 const NewsSchema = z.object({
   rating: z.enum(NEWS_RATINGS),
   score: score("How legitimate/accurate the news content is (100 = fully accurate and well sourced)."),
-  claims: z.array(ClaimSchema).describe("The most important checkable claims, most consequential first (at most 6)."),
+  claims: z.array(ClaimSchema).describe("The most important checkable claims, most consequential first (at most 4)."),
   source_assessment: z
     .string()
-    .describe("Credibility of the outlet/account/author: is it real, who runs it, track record, impersonation or parody risk."),
+    .describe("Credibility of the outlet/account/author (real? track record? impersonation or parody?), in 1-2 short sentences."),
   context: z
     .string()
-    .describe('Missing context, date problems (e.g. old story recirculated), or framing issues. "" if none.'),
+    .describe('Missing context, date problems (e.g. old story recirculated), or framing issues, in one sentence. "" if none.'),
   manipulation_tactics: z
     .array(z.string())
-    .describe("Persuasion or manipulation techniques present (e.g. outrage bait, false urgency, misleading headline)."),
+    .describe("Manipulation techniques present, as short phrases (e.g. outrage bait, false urgency, misleading headline)."),
 });
 
 const VendorSchema = z.object({
@@ -122,10 +122,10 @@ const VendorSchema = z.object({
   score: score("How trustworthy the vendor and offer are (100 = well-established, reputable, safe to buy from)."),
   reputation_summary: z
     .string()
-    .describe("What independent sources say: reviews, complaints, scam reports, regulatory actions, business age."),
+    .describe("What independent sources say (reviews, complaints, scam reports, regulators, business age), in 1-2 short sentences."),
   offer_assessment: z
     .string()
-    .describe('Whether the price, claims, and terms are realistic for this kind of product or service. "" if not applicable.'),
+    .describe('Whether the price, claims, and terms are realistic, in one sentence. "" if not applicable.'),
   green_flags: z.array(z.string()),
   red_flags: z.array(z.string()),
 });
@@ -136,13 +136,13 @@ const ProductSchema = z.object({
   score: score(
     "Product quality and value for money, judged from independent reviews, ratings, materials or specs, and comparison with similar products (100 = excellent). Separate from whether the seller is trustworthy.",
   ),
-  summary: z.string().describe("What independent sources say about the product's quality and value, in 1-3 plain sentences."),
-  pros: z.array(z.string()),
-  cons: z.array(z.string()),
+  summary: z.string().describe("What independent sources say about the product's quality and value, in 1-2 short sentences."),
+  pros: z.array(z.string()).describe("Short phrases, under 10 words each."),
+  cons: z.array(z.string()).describe("Short phrases, under 10 words each."),
 });
 
 const FindingSchema = z.object({
-  observation: z.string().describe("A specific, located observation (what and where), not a generic statement."),
+  observation: z.string().describe("A specific, located observation (what and where), in under 20 words."),
   signal: z.enum(SIGNALS).describe("Whether this observation points toward authentic, suspicious, or neither."),
 });
 
@@ -158,7 +158,7 @@ const MediaItemSchema = z.object({
   findings: z.array(FindingSchema),
   provenance: z
     .string()
-    .describe('Earliest known source, original context, or matching coverage you found. "" if none found.'),
+    .describe('Earliest known source or original context you found, in one sentence. "" if none found.'),
 });
 
 const MediaSchema = z.object({
@@ -168,25 +168,25 @@ const MediaSchema = z.object({
 const RedFlagSchema = z.object({
   severity: z.enum(SEVERITIES),
   category: z.enum(FLAG_CATEGORIES),
-  description: z.string(),
+  description: z.string().describe("Short phrase, under 12 words."),
 });
 
 const BackgroundSectionSchema = z.object({
   title: z.string().describe('Short heading, e.g. "Who\'s involved", "How we got here", "Why it\'s circulating now", "What\'s disputed", "Key terms".'),
-  body: z.string().describe("2-4 plain sentences."),
+  body: z.string().describe("1-2 short sentences (under 40 words)."),
 });
 
 const BackgroundSchema = z.object({
   simple: z
     .string()
-    .describe("2-3 everyday sentences: what this is about and the backstory a newcomer needs. Explains the topic; does not restate the verdict."),
-  sections: z.array(BackgroundSectionSchema).describe("Deeper background for readers who tap to learn more (3-5 sections, most useful first; fewer if there is little backstory)."),
+    .describe("1-2 everyday sentences (under 40 words): what this is about and the backstory a newcomer needs. Explains the topic; does not restate the verdict."),
+  sections: z.array(BackgroundSectionSchema).describe("Deeper background for readers who tap to learn more (2-4 sections, most useful first; fewer if there is little backstory)."),
 });
 
 const SourceSchema = z.object({
   title: z.string(),
   url: z.string().describe("Exact URL as it appeared in your search or fetch results."),
-  supports: z.string().describe("What this source shows and how it bears on the verdict."),
+  supports: z.string().describe("What this source shows, in one short sentence."),
 });
 
 export const ReportSchema = z.object({
@@ -199,28 +199,33 @@ export const ReportSchema = z.object({
       .describe('Short verdict, at most about 60 characters, e.g. "Accurate: Musk Foundation matched Austin\'s $500K" or "Recycled hoax: doctored shark photo".'),
     score_reason: z
       .string()
-      .describe("One or two plain sentences: what raised or lowered the score most. For nothing_to_check, why there is nothing to verify."),
+      .describe("One short sentence (under 25 words): what raised or lowered the score most. For nothing_to_check, why there is nothing to verify."),
     would_raise: z
       .string()
-      .describe('What evidence would move the score higher, in one plain sentence. "" if nothing could, or for nothing_to_check.'),
+      .describe('What evidence would move the score higher, in one short sentence. "" if nothing could, or for nothing_to_check.'),
   }),
-  summary: z.string().describe("2-4 sentence plain-language bottom line for a non-expert."),
+  summary: z.string().describe("Plain-language bottom line for a non-expert, in 1-2 short sentences (under 45 words)."),
   background: BackgroundSchema.describe("Plain-language background so the reader understands what they are looking at."),
   content: z.object({
     type: z.enum(CONTENT_TYPES),
     platform: z.string().describe('Platform or site, e.g. "Facebook", "X", "TikTok", "Amazon", "nytimes.com". "" if unknown.'),
     author: z.string().describe('Account, outlet, seller, or byline as shown. "" if unknown.'),
     published: z.string().describe('Publication date/time as shown or established. "" if unknown.'),
-    description: z.string().describe("Neutral description of what the material shows and claims."),
+    description: z.string().describe("Neutral description of what the material shows and claims, in one sentence."),
   }),
   news: NewsSchema.nullable().describe("News/claims assessment, or null if the material makes no news or factual claims."),
   vendor: VendorSchema.nullable().describe("Vendor/seller assessment, or null if nothing is being sold or promoted."),
   product: ProductSchema.nullable().describe("Product quality assessment, or null if no specific product is advertised, sold, or reviewed."),
   media: MediaSchema.nullable().describe("Image/video authenticity assessment, or null if there is no photo or video content to assess."),
-  red_flags: z.array(RedFlagSchema).describe("Every concerning signal, most severe first."),
-  recommendations: z.array(z.string()).describe("Concrete next steps for the reader (2-5)."),
+  red_flags: z
+    .array(RedFlagSchema)
+    .describe("The most important concerning signals across news, seller, product, and media, most severe first (at most 5)."),
+  green_flags: z
+    .array(z.string())
+    .describe("The most important reassuring signals across news, seller, product, and media (at most 5). Short phrases, under 12 words each. [] if none."),
+  recommendations: z.array(z.string()).describe("Concrete next steps for the reader (1-3), under 12 words each."),
   sources: z.array(SourceSchema).describe("The sources your verdict relies on."),
-  limitations: z.array(z.string()).describe("What you could not check and why; how that limits confidence."),
+  limitations: z.array(z.string()).describe("What you could not check, briefly (1-3 short items)."),
 });
 
 export type Report = z.infer<typeof ReportSchema>;
@@ -254,6 +259,7 @@ export function normalizeReport(report: Report): Report {
       items: report.media.items.map((m) => ({ ...m, authenticity_score: clampScore(m.authenticity_score) })),
     },
     sources: report.sources.filter((s) => s.url.trim() !== ""),
+    green_flags: report.green_flags.map((g) => g.trim()).filter(Boolean),
     background: {
       simple: report.background.simple.trim(),
       sections: report.background.sections.filter((s) => s.title.trim() && s.body.trim()),

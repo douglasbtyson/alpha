@@ -43,6 +43,12 @@ describe("report schema", () => {
     expect(Object.keys(schema.properties as object).slice(0, 3)).toEqual(["verdict", "summary", "background"]);
   });
 
+  it("asks for green flags alongside red flags and drops empty ones", () => {
+    expect((schema.required as string[])).toEqual(expect.arrayContaining(["red_flags", "green_flags"]));
+    const r = normalizeReport({ ...SAMPLE_VENDOR_REPORT, green_flags: ["  Long track record ", " "] });
+    expect(r.green_flags).toEqual(["Long track record"]);
+  });
+
   it("drops empty background sections", () => {
     const r = normalizeReport({
       ...SAMPLE_NEWS_REPORT,

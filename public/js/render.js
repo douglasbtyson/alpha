@@ -169,6 +169,34 @@ function scoreBox(label, score, ratingMap, rating, note, targetId) {
   );
 }
 
+/**
+ * Red and green flags from the whole check, side by side under the trust score.
+ * Reports made before overall green flags existed fall back to the seller's.
+ */
+function renderFlags(rep) {
+  const red = rep.red_flags.length ? rep.red_flags : (rep.vendor?.red_flags ?? []).map((d) => ({ severity: "medium", description: d }));
+  const green = rep.green_flags ?? rep.vendor?.green_flags ?? [];
+  if (!red.length && !green.length) return null;
+  const urgent = (s) => s === "critical" || s === "high";
+  return h(
+    "section",
+    { class: "card flags-top two-col" },
+    h(
+      "div",
+      { class: "flag-col bad" },
+      h("h3", {}, "Red flags"),
+      red.length
+        ? h(
+            "ul",
+            { class: "list" },
+            red.map((f) => h("li", {}, urgent(f.severity) ? h("span", { class: "sev" }, SEVERITY[f.severity][0]) : null, f.description)),
+          )
+        : h("p", { class: "muted" }, "None found"),
+    ),
+    h("div", { class: "flag-col good" }, h("h3", {}, "Green flags"), green.length ? list(green) : h("p", { class: "muted" }, "None found")),
+  );
+}
+
 /** Article confidence, vendor score, and product quality, each only when it applies. */
 function scoreBoxes(rep) {
   const boxes = [];
@@ -262,14 +290,6 @@ function renderVendor(v) {
     identity ? h("p", {}, h("strong", {}, identity)) : null,
     v.reputation_summary ? [h("h3", {}, "Reputation"), h("p", {}, v.reputation_summary)] : null,
     v.offer_assessment ? [h("h3", {}, "The offer"), h("p", {}, v.offer_assessment)] : null,
-    v.green_flags.length || v.red_flags.length
-      ? h(
-          "div",
-          { class: "two-col" },
-          h("div", { class: "flag-col bad" }, h("h3", {}, "Red flags"), v.red_flags.length ? list(v.red_flags) : h("p", { class: "muted" }, "None found")),
-          h("div", { class: "flag-col good" }, h("h3", {}, "Green flags"), v.green_flags.length ? list(v.green_flags) : h("p", { class: "muted" }, "None found")),
-        )
-      : null,
   );
 }
 
@@ -347,7 +367,7 @@ function renderSignals(record) {
     items.push(h("li", {}, h("strong", {}, `${d.domain}: `), young ? h("span", { class: "signal-provenance" }, text) : text));
   }
   if (!items.length) return null;
-  return section("Automated checks", h("p", { class: "muted" }, "Metadata and domain records checked before the AI analysis. Missing metadata is normal and proves nothing."), h("ul", { class: "signals" }, items));
+  return section("Automated checks", h("p", { class: "muted" }, "Checked before the AI analysis. Missing metadata is normal."), h("ul", { class: "signals" }, items));
 }
 
 /** What moved the score, and what would raise it. Older reports have neither. */
@@ -394,7 +414,7 @@ function renderStory(record) {
   const others = story.members.filter((m) => m.id !== record.id);
   return section(
     ["Related checks", h("span", { class: "badge tone-neutral" }, `${story.checks} checks of this story`)],
-    h("p", { class: "muted" }, "Other submissions troonooz recognised as the same story. Verdicts can differ as a story develops."),
+    h("p", { class: "muted" }, "Other submissions of the same story. Verdicts can change as it develops."),
     h(
       "ul",
       { class: "related" },
@@ -523,18 +543,10 @@ export function renderReport(root, record, actions) {
         h("h1", {}, rep.verdict.headline),
       ),
     ),
+    renderFlags(rep),
     scoreBoxes(rep),
     renderWhatsGoingOn(rep),
-    rep.red_flags.length
-      ? section(
-          "Red flags",
-          h(
-            "ul",
-            { class: "flags" },
-            rep.red_flags.map((f) => h("li", { class: "flag" }, badge(SEVERITY, f.severity), h("span", {}, f.description))),
-          ),
-        )
-      : null,
+
     section(
       "What was checked",
       h(

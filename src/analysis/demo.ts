@@ -96,6 +96,7 @@ export const SAMPLE_NEWS_REPORT: Report = {
     { severity: "high", category: "news", description: "A years-old image is presented as happening \"right now\"." },
     { severity: "medium", category: "general", description: "The posting page is new and anonymous and relies on alarm-style captions." },
   ],
+  green_flags: [],
   recommendations: [
     "Do not share the post; report it to the platform as false information.",
     "For storm conditions, follow your local emergency management agency and national weather service.",
@@ -183,6 +184,7 @@ export const SAMPLE_VENDOR_REPORT: Report = {
     { severity: "critical", category: "vendor", description: "The store's domain is only weeks old while claiming to be a long-running boutique." },
     { severity: "high", category: "vendor", description: "Bank-transfer-only payment means no way to recover money." },
   ],
+  green_flags: [],
   recommendations: [
     "Do not buy from this store.",
     "If you already paid, contact your bank immediately and report the ad to the platform.",
@@ -224,6 +226,7 @@ export const SAMPLE_NOTHING_REPORT: Report = {
   product: null,
   media: null,
   red_flags: [],
+  green_flags: ["Ordinary conversation with nothing to verify"],
   recommendations: ["No action needed."],
   sources: [],
   limitations: ["Demo data: no real analysis was performed."],

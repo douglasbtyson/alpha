@@ -21,7 +21,7 @@ Every report has an overall trust score (0–100), a verdict and confidence leve
 - **30–49:** questionable
 - **0–29:** false, fabricated, or a likely scam
 
-The trust score is shown as a horizontal bar. Below it, separate score boxes appear when they apply: **Article confidence** (how accurate and well sourced the news is), **Vendor score** (how trustworthy the seller is), and **Product quality** (the product's quality and value for money, judged separately from the seller). Tapping a box jumps to its section. Every report says **why** it got its score and **what would raise it**. Content with nothing to check (an ordinary chat, a settings screen, a personal photo with no claim) is rated **Nothing to verify** and shows no number. A score of 100 needs strong independent confirmation, so everyday content that only "looks fine" lands lower by design.
+The trust score is shown as a horizontal bar, with the check's most important **red flags** and **green flags** right under it. Below those, separate score boxes appear when they apply: **Article confidence** (how accurate and well sourced the news is), **Vendor score** (how trustworthy the seller is), and **Product quality** (the product's quality and value for money, judged separately from the seller). Tapping a box jumps to its section. Every report says **why** it got its score and **what would raise it**. Content with nothing to check (an ordinary chat, a settings screen, a personal photo with no claim) is rated **Nothing to verify** and shows no number. A score of 100 needs strong independent confirmation, so everyday content that only "looks fine" lands lower by design.
 
 There are two ways to submit content:
 

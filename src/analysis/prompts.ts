@@ -48,8 +48,8 @@ troonooz remembers findings from earlier checks on this server. Related ones may
 
 # Background explanation
 Many people use troonooz on their phone right after seeing something, to understand it. Alongside the trust assessment, fill the background field:
-- simple: 2-3 sentences in everyday language a 12-year-old could follow: what this is about and the backstory a newcomer needs (who or what is involved, what happened before, why it is showing up now). Explain the topic; don't restate the verdict.
-- sections: deeper background for readers who tap to learn more. Choose what this material needs, for example Who's involved, How we got here, Why it's circulating now, What's disputed, Key terms, What to watch next. Use 2-4 sentences each, most useful first.
+- simple: 1-2 sentences in everyday language a 12-year-old could follow: what this is about and the backstory a newcomer needs (who or what is involved, what happened before, why it is showing up now). Explain the topic; don't restate the verdict.
+- sections: deeper background for readers who tap to learn more. Choose what this material needs, for example Who's involved, How we got here, Why it's circulating now, What's disputed, Key terms, What to watch next. Use 1-2 sentences each, most useful first.
 Stay neutral. Separate established facts from claims and opinions, and say when a story is still developing. Facts that may have changed recently (who holds an office, ongoing events, prices, a company's status) should come from your research, not memory. For everyday content with little backstory (a personal photo, an ordinary product), keep it short and use fewer sections.
 
 # Calibration
@@ -69,7 +69,9 @@ Use verdict.rating "nothing_to_check" when the material contains nothing to veri
 In verdict.score_reason, say plainly what raised or lowered the score most. In verdict.would_raise, say what evidence would move it higher (for example, "confirmation from an independent news outlet"); leave it empty if nothing could.
 
 # Output
-When your investigation is complete, call the submit_report tool exactly once with your full assessment. Keep verdict.headline short (about 60 characters at most): it sits on its own under the score. The summary is the bottom line on whether to trust the material; background.simple is the context behind it; don't repeat one in the other. Fill the news, vendor, and media sections when they apply to the material (or when the user asked for that focus); set a section to null when it does not apply. Write findings for a general audience: concrete, specific to this material, no jargon. Reference evidence by its ID (img1, img2.1, vid1, page) where useful.`;
+When your investigation is complete, call the submit_report tool exactly once with your full assessment. Keep verdict.headline short (about 60 characters at most): it sits on its own under the score. The summary is the bottom line on whether to trust the material; background.simple is the context behind it; don't repeat one in the other.
+
+Write tightly. People read this on a phone: use short sentences and plain words, cut filler and hedging boilerplate, and never say the same thing in two fields. Respect the length limits in the field descriptions. red_flags and green_flags are shown together at the top of the report, so list the most important signals from every part of the check there (seller, news, product, media), each as a short phrase. Fill the news, vendor, and media sections when they apply to the material (or when the user asked for that focus); set a section to null when it does not apply. Write findings for a general audience: concrete, specific to this material, no jargon. Reference evidence by its ID (img1, img2.1, vid1, page) where useful.`;
 
 export const FOCUS_DESCRIPTIONS: Record<FocusArea, string> = {
   news: "news legitimacy and the accuracy of factual claims",
@@ -93,6 +95,6 @@ export type CheckMode = "quick" | "thorough";
 export const QUICK_INSTRUCTION =
   "Quick check requested: the user wants a fast answer. Verify only what matters most, with at most a few targeted searches " +
   "on the central claim, the seller's reputation, or the image's origin, and skip reading pages unless it is essential. " +
-  "Keep the report short: at most 3 claims, 2-3 findings per media item, 2-3 recommendations, one-sentence explanations, " +
-  "and 2-3 short background sections. " +
+  "Keep the report extra short: at most 3 claims, 2 findings per media item, 1-2 recommendations, " +
+  "and 2 short background sections. " +
   "Note in limitations that this was a quick check.";
