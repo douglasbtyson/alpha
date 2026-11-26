@@ -37,7 +37,7 @@ Steps, in PowerShell from the troonooz folder:
    ```
    npx.cmd eas-cli@latest build --platform ios --profile production
    ```
-   The first time, it asks to create an EAS project (say yes) and to sign in to your Apple account so it can create the certificates the app needs (let it). The build takes about 10–20 minutes; the command shows a link where you can watch it.
+   The first time, it asks you to sign in to your Apple account so it can create the certificates the app needs (let it, and let it generate anything it offers to). The build takes about 10–20 minutes; the command shows a link where you can watch it.
 4. **Send it to TestFlight:**
    ```
    npx.cmd eas-cli@latest submit --platform ios --latest
