@@ -322,7 +322,8 @@ export function createApp(deps: AppDeps): express.Express {
     });
 
     const sourceRaw = str(body.source);
-    const source: InputSource = sourceRaw === "web" || sourceRaw === "extension" || sourceRaw === "shortcut" ? sourceRaw : "api";
+    const source: InputSource =
+      sourceRaw === "web" || sourceRaw === "extension" || sourceRaw === "shortcut" || sourceRaw === "app" ? sourceRaw : "api";
     const input: AnalysisInput = {
       files: (fileMap.files ?? []).map(toUpload),
       frames,
@@ -341,13 +342,18 @@ export function createApp(deps: AppDeps): express.Express {
     void runJob(job, input, { reuse: parseBool(body.reuse, true) });
   };
 
-  const jobLinks = (job: Job, req: Request) => ({
-    id: job.id,
-    events_url: `/api/jobs/${job.id}/events`,
-    report_url: `/api/reports/${job.id}`,
-    view_url: `/#/report/${job.id}`,
-    open_url: `${baseUrl(req)}/#/report/${job.id}`,
-  });
+  const jobLinks = (job: Job, req: Request) => {
+    const base = baseUrl(req);
+    return {
+      id: job.id,
+      events_url: `/api/jobs/${job.id}/events`,
+      report_url: `/api/reports/${job.id}`,
+      view_url: `/#/report/${job.id}`,
+      open_url: `${base}/#/report/${job.id}`,
+      /** Opens the check in the troonooz iPhone app, which learns this server's address from the link. */
+      app_url: `troonooz://report/${job.id}?server=${encodeURIComponent(base)}`,
+    };
+  };
 
   /** RDAP through the knowledge base's cache, when there is one. */
   const domainLookup = async (domain: string): Promise<DomainInfo> => {
@@ -572,7 +578,9 @@ export function createApp(deps: AppDeps): express.Express {
       res.status(404).json({ error: "not_found", message: "No such job." });
       return;
     }
-    res.json({ id, status: job.status, events: job.events });
+    // The newest draft of the verdict lets clients that poll (the iPhone app) show it early too.
+    const draft = job.latestDraft?.type === "progress" && job.latestDraft.event.type === "draft" ? job.latestDraft.event.draft : null;
+    res.json({ id, status: job.status, events: job.events, draft: job.status === "running" ? draft : null });
   });
 
   /** Run a full check on content that matched an earlier report, without re-uploading it. */

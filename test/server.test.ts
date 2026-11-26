@@ -153,6 +153,30 @@ describe("HTTP API", () => {
     expect(seen).toEqual([["writing", undefined], ["draft", true]]);
   });
 
+  describe("iPhone app support", () => {
+    it("records checks the app uploads as coming from the app", async () => {
+      const { app, store } = await makeApp();
+      const res = await request(app).post("/api/analyze").attach("files", await solidPng(200, 300), "photo.png").field("source", "app").field("mode", "quick").expect(202);
+      expect(res.body.app_url).toMatch(/^troonooz:\/\/report\/[\w-]+\?server=http%3A%2F%2F127\.0\.0\.1%3A\d+$/);
+      await waitForJob(res.body.id);
+      expect((await store.get(res.body.id))!.input).toMatchObject({ source: "app", mode: "quick" });
+    });
+
+    it("includes the newest verdict draft in the job state while it runs, for clients that poll", async () => {
+      const { app } = await makeApp();
+      const job = jobs.create();
+      job.progress({ type: "writing" });
+      const draft = { rating: "mixed", trust_score: 55, confidence: "medium", headline: "Partly true", summary: "", explanation: "" };
+      job.progress({ type: "draft", draft });
+      const running = await request(app).get(`/api/jobs/${job.id}`).expect(200);
+      expect(running.body).toMatchObject({ status: "running", draft });
+      expect(running.body.events).toHaveLength(1);
+      job.fail("internal", "boom");
+      const failed = await request(app).get(`/api/jobs/${job.id}`).expect(200);
+      expect(failed.body).toMatchObject({ status: "error", draft: null });
+    });
+  });
+
   describe("iPhone scan endpoint", () => {
     it("takes a raw screenshot body, defaults to a quick check, and returns a link to open", async () => {
       const { app, store } = await makeApp();
@@ -163,6 +187,7 @@ describe("HTTP API", () => {
         .send(await solidPng(390, 844))
         .expect(202);
       expect(res.body.open_url).toBe(`https://my-pc.tail1234.ts.net/#/report/${res.body.id}`);
+      expect(res.body.app_url).toBe(`troonooz://report/${res.body.id}?server=https%3A%2F%2Fmy-pc.tail1234.ts.net`);
       const job = await waitForJob(res.body.id);
       expect(job.status).toBe("done");
       const rec = (await store.get(res.body.id))!;

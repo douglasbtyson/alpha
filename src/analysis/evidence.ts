@@ -95,6 +95,7 @@ const SOURCE_LABELS: Record<string, string> = {
   web: "the troonooz web app",
   extension: "the troonooz browser extension",
   shortcut: "the iPhone shortcut (a screenshot of whatever app was on screen; the user wants to understand it)",
+  app: "the troonooz iPhone app (a screenshot or photo the user picked to understand)",
   api: "the API",
 };
 

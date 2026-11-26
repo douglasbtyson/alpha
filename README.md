@@ -23,10 +23,11 @@ Every report has an overall trust score (0–100), a verdict and confidence leve
 
 The trust score is shown as a horizontal bar, with the check's most important **red flags** and **green flags** right under it. Below those, separate score boxes appear when they apply: **Article confidence** (how accurate and well sourced the news is), **Vendor score** (how trustworthy the seller is), and **Product quality** (the product's quality and value for money, judged separately from the seller). Tapping a box jumps to its section. Every report says **why** it got its score and **what would raise it**. Content with nothing to check (an ordinary chat, a settings screen, a personal photo with no claim) is rated **Nothing to verify** and shows no number. A score of 100 needs strong independent confirmation, so everyday content that only "looks fine" lands lower by design.
 
-There are two ways to submit content:
+There are several ways to submit content:
 
 - **Web app**: drop, paste (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>V</kbd>), or browse for screenshots, photos, and videos, and add text or links.
 - **Chrome extension**: select a post or area on any page, check the whole visible page, capture frames from a playing video, or right-click an image, link, or selected text.
+- **iPhone**: double-tap the back of the phone to check whatever is on screen, and read the result in the browser or in the **troonooz iPhone app**, which shows each check as a 3D card deck and a 3D evidence map.
 
 ## Quick start
 
@@ -60,6 +61,17 @@ troonooz can check whatever is on your iPhone's screen (social media apps, Safar
 4. Optionally, add troonooz to the Home Screen from Safari (Share → Add to Home Screen).
 
 If the Shortcut opens the wrong address, the Phone page says so and gives the line to add to `.env` (`TROONOOZ_PUBLIC_URL=https://…ts.net`).
+
+### The troonooz iPhone app
+
+Instead of opening results in Safari, the Shortcut can open them in the troonooz app (in `mobile/`). Each check opens as:
+
+- **A card deck**: swipe through 3D cards for the verdict (tap it to flip it over and see why it got its score), red and green flags, scores, What's going on, the claims, the seller, the product, images and video, what to do, sources, and related checks.
+- **A 3D evidence map**: the post sits in the middle with its trust score, each part of the check (claims, seller, product, media, flags, sources, related checks) is a hub around it, and every finding orbits its hub, coloured green, amber, or red. Drag to spin it; tap any dot to fly to it and read it. Claims are linked to the sources that back them.
+
+The app also shows live progress while a check runs (with the early verdict), lists recent checks, and can check a screenshot or photo from your library. It respects Reduce Motion and Dark Mode.
+
+To use it with the Shortcut, change step 3 (Get Dictionary Value) from `open_url` to `app_url`. The first link the app opens tells it your server's address, so there's nothing to type. Building it and installing it through TestFlight is covered in [mobile/README.md](mobile/README.md); it needs an Apple Developer account, but no Mac.
 
 ### Start troonooz automatically on Windows
 
@@ -236,7 +248,7 @@ All settings are environment variables; `.env` is loaded automatically. See `.en
 
 ## API
 
-`POST /api/analyze` takes `multipart/form-data` and returns `202 {id, events_url, report_url, view_url}`.
+`POST /api/analyze` takes `multipart/form-data` and returns `202 {id, events_url, report_url, view_url, open_url, app_url}`. `open_url` is an absolute link to the live report in the web app; `app_url` (`troonooz://report/<id>?server=<this server>`) opens it in the iPhone app.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -250,13 +262,14 @@ All settings are environment variables; `.env` is loaded automatically. See `.en
 | `web` | `true`/`false` | Live web research (default `true`) |
 | `mode` | `thorough`/`quick` | Quick: medium effort, at most 3 searches and 1 page read, no zooming, shorter report (default `thorough`) |
 | `reuse` | `true`/`false` | Allow an instant match with an earlier report (default `true`) |
-| `source` | `web`/`extension`/`api` | Where the request came from |
+| `source` | `web`/`extension`/`shortcut`/`app`/`api` | Where the request came from |
 
 Other endpoints:
 
 - `GET /api/jobs/:id/events` is a Server-Sent Events stream of `progress` events (`status`, `thinking`, `search`, `fetch`, `lookup`, `zoom`, `writing`, `draft`, `fallback`) that ends with `done`, `match` (an earlier report covers this content), or `error`. Each event has an `id`, so a reconnecting client resumes where it left off. `draft` events (the verdict while the report is written) are live only and carry no `id`. Because `EventSource` can't send headers, this endpoint also accepts the token as `?token=`.
+- `GET /api/jobs/:id` returns the job's `status` (`running`, `done`, `matched`, or `error`), its `events`, and, while it runs, the newest verdict `draft`. The iPhone app polls this instead of using the event stream.
 - `GET /api/reports/:id` returns the full record (report, inputs, thumbnails, automated signals, research log, token usage) and its `story` (other checks of the same story). `GET /api/reports` lists recent reports, and `DELETE /api/reports/:id` deletes one.
-- `POST /api/scan` is for one-tap clients such as the iPhone Shortcut. The body is a raw screenshot (or a shared link or text as `text/plain`, or the same form as `/api/analyze`). Options go in the query string: `mode` (default `quick`), `focus`, `web`, and `reuse`. It returns the same JSON as `/api/analyze` plus `open_url`, an absolute link to the live report.
+- `POST /api/scan` is for one-tap clients such as the iPhone Shortcut. The body is a raw screenshot (or a shared link or text as `text/plain`, or the same form as `/api/analyze`). Options go in the query string: `mode` (default `quick`), `focus`, `web`, and `reuse`. It returns the same JSON as `/api/analyze`, including `open_url` and `app_url`.
 - `POST /api/jobs/:id/rerun` runs a fresh check on content from a matched job, without re-uploading it.
 - `POST /api/reports/:id/dispute` with `{"note": "..."}` flags a report as possibly wrong.
 - `GET /api/health` returns the server status, including knowledge-base counts.
@@ -291,5 +304,7 @@ npm test            # vitest: schema, metadata, imaging, fingerprints, knowledge
 npm run typecheck
 npm run build
 ```
+
+The iPhone app has its own checks: `cd mobile && npm install && npm test && npm run typecheck`.
 
 The analyzer takes a `Streamer` function, so tests and demo mode can substitute a scripted model (`src/analysis/demo.ts`, `test/helpers.ts`). The real implementation wraps `client.beta.messages.stream(...)`.
