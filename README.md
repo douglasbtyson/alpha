@@ -52,6 +52,22 @@ troonooz can check whatever is on your iPhone's screen (social media apps, Safar
 
 If the Shortcut opens the wrong address, the Phone page says so and gives the line to add to `.env` (`TROONOOZ_PUBLIC_URL=https://…ts.net`).
 
+### Start troonooz automatically on Windows
+
+To use troonooz from your phone while you're away, the PC must be on, awake, online, and running troonooz. To have troonooz start by itself whenever you sign in to Windows, run this once from the troonooz folder in PowerShell:
+
+```
+.\scripts\windows\install-autostart.cmd
+```
+
+This adds a shortcut to your Startup folder (no administrator rights needed). After that, troonooz opens in a minimized **troonooz** window each time you sign in. Open the window to see what it's doing, or close it to stop troonooz. To turn auto-start off again, run `.\scripts\windows\uninstall-autostart.cmd`.
+
+Two Windows settings help keep troonooz reachable:
+- **Settings → System → Power → Screen and sleep:** set sleep "when plugged in" to **Never** (the screen may still turn off).
+- **Settings → Accounts → Sign-in options:** turn on **"Use my sign-in info to automatically finish setting up after an update"**, if your PC offers it. Windows then signs you back in after update restarts, so troonooz and Tailscale start again.
+
+If troonooz is already running and you start a second copy, the second copy says so and exits.
+
 ### Install the browser extension
 
 1. Open `chrome://extensions` and turn on **Developer mode**.

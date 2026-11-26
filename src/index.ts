@@ -49,7 +49,8 @@ if (config.knowledge) {
 }
 const app = createApp({ config, streamer, claudeConfigured, store, jobs, knowledge, triage: config.storyTriage ? triage : null });
 
-app.listen(config.port, config.host, async () => {
+const server = app.listen(config.port, config.host, async (err?: Error) => {
+  if (err) return; // Express 5 calls back on errors too; the "error" handler below explains them.
   const url = `http://${config.host === "0.0.0.0" ? "localhost" : config.host}:${config.port}`;
   console.log(`troonooz listening on ${url}`);
   if (config.demo) {
@@ -62,4 +63,16 @@ app.listen(config.port, config.host, async () => {
   else if (config.host !== "127.0.0.1" && config.host !== "localhost") {
     console.warn("WARNING: listening on a non-local address without TROONOOZ_API_TOKEN; anyone who can reach it can spend your API credits.");
   }
+});
+
+server.on("error", (err: NodeJS.ErrnoException) => {
+  if (err.code === "EADDRINUSE") {
+    console.error(
+      `\ntroonooz is already running on port ${config.port} (perhaps in a minimized window started automatically when you signed in).\n` +
+        `Open http://localhost:${config.port} in your browser, or close the other troonooz window first.\n`,
+    );
+  } else {
+    console.error(`troonooz could not start: ${err.message}`);
+  }
+  process.exit(1);
 });
