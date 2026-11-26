@@ -71,6 +71,7 @@ export const SAMPLE_NEWS_REPORT: Report = {
     manipulation_tactics: ["False urgency (\"right now\", \"stay inside\")", "Fear-based engagement bait", "Recycled image presented as new"],
   },
   vendor: null,
+  product: null,
   media: {
     items: [
       {
@@ -169,6 +170,14 @@ export const SAMPLE_VENDOR_REPORT: Report = {
       "No company address or registration details",
     ],
   },
+  product: {
+    name: "Designer leather handbags (as advertised)",
+    rating: "poor",
+    score: 15,
+    summary: "The photos are copied from the brand's own site, so they show the real bag, not what this store ships. Buyers of look-alike stores report receiving cheap imitations or nothing.",
+    pros: [],
+    cons: ["Product photos are not of this store's stock", "No independent reviews of what customers actually received"],
+  },
   media: null,
   red_flags: [
     { severity: "critical", category: "vendor", description: "The store's domain is only weeks old while claiming to be a long-running boutique." },
@@ -212,6 +221,7 @@ export const SAMPLE_NOTHING_REPORT: Report = {
   },
   news: null,
   vendor: null,
+  product: null,
   media: null,
   red_flags: [],
   recommendations: ["No action needed."],

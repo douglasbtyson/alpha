@@ -31,12 +31,12 @@ describe("report schema", () => {
     });
   });
 
-  it("keeps union-typed fields to the three optional sections", () => {
+  it("keeps union-typed fields to the four optional sections", () => {
     let unions = 0;
     walk(schema, (n) => {
       if (Array.isArray(n.anyOf)) unions++;
     });
-    expect(unions).toBe(3);
+    expect(unions).toBe(4);
   });
 
   it("puts the verdict, summary, and background first so they are written (and shown) first", () => {

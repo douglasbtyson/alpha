@@ -81,6 +81,8 @@ export const MEDIA_RATINGS = [
   "inconclusive",
 ] as const;
 
+export const PRODUCT_RATINGS = ["excellent", "good", "mixed", "poor", "unknown"] as const;
+
 export const LIKELIHOODS = ["very_low", "low", "moderate", "high", "very_high", "unknown"] as const;
 export const SEVERITIES = ["low", "medium", "high", "critical"] as const;
 export const FLAG_CATEGORIES = ["news", "vendor", "media", "general"] as const;
@@ -126,6 +128,17 @@ const VendorSchema = z.object({
     .describe('Whether the price, claims, and terms are realistic for this kind of product or service. "" if not applicable.'),
   green_flags: z.array(z.string()),
   red_flags: z.array(z.string()),
+});
+
+const ProductSchema = z.object({
+  name: z.string().describe('The product as advertised, e.g. "Striped knee-high tube socks". "" if unclear.'),
+  rating: z.enum(PRODUCT_RATINGS),
+  score: score(
+    "Product quality and value for money, judged from independent reviews, ratings, materials or specs, and comparison with similar products (100 = excellent). Separate from whether the seller is trustworthy.",
+  ),
+  summary: z.string().describe("What independent sources say about the product's quality and value, in 1-3 plain sentences."),
+  pros: z.array(z.string()),
+  cons: z.array(z.string()),
 });
 
 const FindingSchema = z.object({
@@ -202,6 +215,7 @@ export const ReportSchema = z.object({
   }),
   news: NewsSchema.nullable().describe("News/claims assessment, or null if the material makes no news or factual claims."),
   vendor: VendorSchema.nullable().describe("Vendor/seller assessment, or null if nothing is being sold or promoted."),
+  product: ProductSchema.nullable().describe("Product quality assessment, or null if no specific product is advertised, sold, or reviewed."),
   media: MediaSchema.nullable().describe("Image/video authenticity assessment, or null if there is no photo or video content to assess."),
   red_flags: z.array(RedFlagSchema).describe("Every concerning signal, most severe first."),
   recommendations: z.array(z.string()).describe("Concrete next steps for the reader (2-5)."),
@@ -235,6 +249,7 @@ export function normalizeReport(report: Report): Report {
       claims: report.news.claims.map((c) => ({ ...c, source_urls: c.source_urls.filter(Boolean) })),
     },
     vendor: report.vendor && { ...report.vendor, score: clampScore(report.vendor.score) },
+    product: report.product && { ...report.product, score: clampScore(report.product.score) },
     media: report.media && {
       items: report.media.items.map((m) => ({ ...m, authenticity_score: clampScore(m.authenticity_score) })),
     },

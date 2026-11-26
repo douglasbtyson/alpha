@@ -1,4 +1,4 @@
-import { externalLink, h, hostOf, svg } from "./dom.js";
+import { externalLink, h, hostOf } from "./dom.js";
 
 const OVERALL = {
   trustworthy: ["Trustworthy", "good"],
@@ -48,6 +48,14 @@ const VENDOR = {
   high_risk: ["High risk", "bad"],
   likely_scam: ["Likely scam", "bad"],
   unknown: ["Unknown", "neutral"],
+};
+
+const PRODUCT = {
+  excellent: ["Excellent", "good"],
+  good: ["Good", "ok"],
+  mixed: ["Mixed", "caution"],
+  poor: ["Poor", "bad"],
+  unknown: ["Not enough info", "neutral"],
 };
 
 const MEDIA = {
@@ -113,33 +121,64 @@ function badge(map, key, extra = "") {
   return h("span", { class: `badge tone-${tone} ${extra}`.trim() }, label);
 }
 
-function gauge(score, rating) {
+/** The overall trust score as a horizontal bar (or a neutral line when there is nothing to verify). */
+function trustMeter(score, rating) {
   if (rating === "nothing_to_check") {
     return h(
       "div",
-      { class: "gauge gauge-none", role: "img", "aria-label": "Nothing to verify" },
-      h("div", { class: "gauge-label" }, h("span", { class: "gauge-check", "aria-hidden": "true" }, "\u2713"), h("span", { class: "gauge-caption" }, "Nothing to verify")),
+      { class: "trust-meter trust-none", role: "img", "aria-label": "Nothing to verify" },
+      h("span", { class: "trust-check", "aria-hidden": "true" }, "\u2713"),
+      h("span", {}, "Nothing to verify"),
     );
   }
   const tone = scoreTone(score, rating);
-  const r = 62;
-  const c = 2 * Math.PI * r;
-  const value = svg("circle", {
-    class: "gauge-value",
-    cx: 74,
-    cy: 74,
-    r,
-    stroke: TONE_VAR[tone],
-    "stroke-dasharray": c,
-    "stroke-dashoffset": c,
-  });
-  requestAnimationFrame(() => requestAnimationFrame(() => value.setAttribute("stroke-dashoffset", String(c * (1 - score / 100)))));
+  const fill = h("span", { class: "trust-fill", style: { width: "0%", background: TONE_VAR[tone] } });
+  requestAnimationFrame(() => requestAnimationFrame(() => (fill.style.width = `${score}%`)));
   return h(
     "div",
-    { class: "gauge", role: "img", "aria-label": `Trust score ${score} out of 100` },
-    svg("svg", { viewBox: "0 0 148 148" }, svg("circle", { class: "gauge-track", cx: 74, cy: 74, r }), value),
-    h("div", { class: "gauge-label" }, h("span", { class: "gauge-score", style: { color: TONE_VAR[tone] } }, score), h("span", { class: "gauge-caption" }, "Trust score")),
+    { class: "trust-meter", role: "img", "aria-label": `Trust score ${score} out of 100` },
+    h(
+      "div",
+      { class: "trust-top" },
+      h("span", { class: "trust-label" }, "Trust score"),
+      h("span", { class: "trust-value", style: { color: TONE_VAR[tone] } }, h("strong", {}, score), h("span", { class: "trust-out-of" }, "/100")),
+    ),
+    h("div", { class: "trust-track" }, fill),
+    h("div", { class: "trust-scale", "aria-hidden": "true" }, h("span", {}, "Untrustworthy"), h("span", {}, "Trustworthy")),
   );
+}
+
+/** One small meter in its own box; tapping it scrolls to the matching section. */
+function scoreBox(label, score, ratingMap, rating, note, targetId) {
+  const [ratingLabel, ratingTone] = ratingMap[rating] ?? [rating, "neutral"];
+  const tone = rating === "unknown" ? "neutral" : scoreTone(score);
+  const fill = h("span", { style: { width: "0%", background: TONE_VAR[tone] } });
+  requestAnimationFrame(() => requestAnimationFrame(() => (fill.style.width = `${score}%`)));
+  return h(
+    "button",
+    {
+      type: "button",
+      class: "card score-box",
+      "aria-label": `${label}: ${score} out of 100, ${ratingLabel}. Show details.`,
+      onclick: () => document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" }),
+    },
+    h("span", { class: "score-box-head" }, h("span", { class: "score-box-label" }, label), h("span", { class: "score-box-value", style: { color: TONE_VAR[tone] } }, score)),
+    h("span", { class: "score-box-track", "aria-hidden": "true" }, fill),
+    h("span", { class: `badge tone-${ratingTone}` }, ratingLabel),
+    note ? h("span", { class: "score-box-note" }, note) : null,
+  );
+}
+
+/** Article confidence, vendor score, and product quality, each only when it applies. */
+function scoreBoxes(rep) {
+  const boxes = [];
+  if (rep.news) {
+    const n = rep.news.claims.length;
+    boxes.push(scoreBox("Article confidence", rep.news.score, NEWS, rep.news.rating, n ? `${n} claim${n === 1 ? "" : "s"} checked` : "", "sec-news"));
+  }
+  if (rep.vendor) boxes.push(scoreBox("Vendor score", rep.vendor.score, VENDOR, rep.vendor.rating, rep.vendor.name || rep.vendor.website, "sec-vendor"));
+  if (rep.product) boxes.push(scoreBox("Product quality", rep.product.score, PRODUCT, rep.product.rating, rep.product.name, "sec-product"));
+  return boxes.length ? h("div", { class: "score-boxes" }, boxes) : null;
 }
 
 function scoreBar(score, label = "Score") {
@@ -154,6 +193,12 @@ function scoreBar(score, label = "Score") {
 
 function section(title, ...body) {
   return h("section", { class: "card section" }, h("h2", {}, ...[title].flat()), ...body);
+}
+
+function sectionWithId(id, title, ...body) {
+  const el = section(title, ...body);
+  el.id = id;
+  return el;
 }
 
 function list(items) {
@@ -198,7 +243,8 @@ function renderNews(news, sourceSeen) {
       )
     : h("p", { class: "muted" }, "No specific checkable claims were identified.");
 
-  return section(
+  return sectionWithId(
+    "sec-news",
     ["News & claims", badge(NEWS, news.rating), scoreBar(news.score)],
     h("h3", {}, "Claims checked"),
     claims,
@@ -210,7 +256,8 @@ function renderNews(news, sourceSeen) {
 
 function renderVendor(v) {
   const identity = [v.name, v.website].filter(Boolean).join(" · ");
-  return section(
+  return sectionWithId(
+    "sec-vendor",
     ["Seller / vendor", badge(VENDOR, v.rating), scoreBar(v.score)],
     identity ? h("p", {}, h("strong", {}, identity)) : null,
     v.reputation_summary ? [h("h3", {}, "Reputation"), h("p", {}, v.reputation_summary)] : null,
@@ -221,6 +268,23 @@ function renderVendor(v) {
           { class: "two-col" },
           h("div", { class: "flag-col bad" }, h("h3", {}, "Red flags"), v.red_flags.length ? list(v.red_flags) : h("p", { class: "muted" }, "None found")),
           h("div", { class: "flag-col good" }, h("h3", {}, "Green flags"), v.green_flags.length ? list(v.green_flags) : h("p", { class: "muted" }, "None found")),
+        )
+      : null,
+  );
+}
+
+function renderProduct(p) {
+  return sectionWithId(
+    "sec-product",
+    ["Product quality", badge(PRODUCT, p.rating), scoreBar(p.score, "Product quality")],
+    p.name ? h("p", {}, h("strong", {}, p.name)) : null,
+    p.summary ? h("p", {}, p.summary) : null,
+    p.pros.length || p.cons.length
+      ? h(
+          "div",
+          { class: "two-col" },
+          h("div", { class: "flag-col good" }, h("h3", {}, "What's good"), p.pros.length ? list(p.pros) : h("p", { class: "muted" }, "Nothing notable")),
+          h("div", { class: "flag-col bad" }, h("h3", {}, "Drawbacks"), p.cons.length ? list(p.cons) : h("p", { class: "muted" }, "None found")),
         )
       : null,
   );
@@ -444,7 +508,7 @@ export function renderReport(root, record, actions) {
     h(
       "section",
       { class: "card verdict" },
-      gauge(rep.verdict.trust_score, rep.verdict.rating),
+      trustMeter(rep.verdict.trust_score, rep.verdict.rating),
       h(
         "div",
         {},
@@ -459,6 +523,7 @@ export function renderReport(root, record, actions) {
         h("h1", {}, rep.verdict.headline),
       ),
     ),
+    scoreBoxes(rep),
     renderWhatsGoingOn(rep),
     rep.red_flags.length
       ? section(
@@ -496,6 +561,7 @@ export function renderReport(root, record, actions) {
     ),
     rep.news ? renderNews(rep.news, sourceSeen) : null,
     rep.vendor ? renderVendor(rep.vendor) : null,
+    rep.product ? renderProduct(rep.product) : null,
     rep.media && rep.media.items.length ? renderMedia(rep.media) : null,
     rep.recommendations.length ? section("What to do", list(rep.recommendations)) : null,
     renderStory(record),
