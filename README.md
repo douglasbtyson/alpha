@@ -41,7 +41,7 @@ troonooz can check whatever is on your iPhone's screen (social media apps, Safar
    ```
    tailscale serve --bg 8787
    ```
-   This shares troonooz over HTTPS with your own Tailscale devices only (not the public internet), keeps sharing in the background, and resumes after a reboot. Serve needs MagicDNS and HTTPS certificates, which are on by default for new tailnets. To stop sharing, run `tailscale serve off`. Open the `https://….ts.net` address it shows in Safari on the iPhone.
+   This shares troonooz over HTTPS with your own Tailscale devices only (not the public internet), keeps sharing in the background, and resumes after a reboot. Serve needs MagicDNS and HTTPS certificates, which are on by default for new tailnets. To stop sharing, run the command `tailscale serve` prints when it starts (for example `tailscale serve --https=443 off`); `tailscale serve status` shows the address. Open the `https://….ts.net` address it shows in Safari on the iPhone.
 2. **Open the Phone page** (`#/phone`) on the iPhone. It shows the exact Shortcut settings for your address, with copy buttons. The Shortcut has four actions:
    1. Take Screenshot
    2. Get Contents of URL: `https://<your-pc>.<tailnet>.ts.net/api/scan?mode=quick`, Method POST, Request Body File (the screenshot)
