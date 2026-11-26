@@ -194,7 +194,7 @@ The database also caches domain-registration (RDAP) lookups for 7 days. Turn the
 Every report records where its time went: preparing evidence, looking for earlier checks, researching, and writing the report. The breakdown appears under **How this check was done** and in the server log (for example `done in 64.2s (thorough: prepare 1.1s, earlier checks 0.0s, research 41.5s, writing 21.6s; …)`).
 
 Two features make checks faster or feel faster:
-- **Quick check** (a choice on the form, and a checkbox in the extension popup): medium effort, at most 3 searches and 1 page read, no zooming, and a shorter report. A quick result is never reused for someone who asks for a thorough check.
+- **Quick check** (a choice on the form, a checkbox in the extension popup, and the default for the iPhone shortcut): Claude Haiku 5.5 instead of Opus, medium effort, at most 3 searches and 1 page read, no zooming, and a shorter report. A quick result is never reused for someone who asks for a thorough check.
 - **Early verdict:** the report schema puts the verdict first. While Claude writes the report, the score, verdict, and summary appear as a **Preliminary result**, before the full report is finished. These drafts are streamed live but not kept in the job history.
 
 ### Design choices worth knowing
@@ -215,6 +215,7 @@ All settings are environment variables; `.env` is loaded automatically. See `.en
 | `TROONOOZ_API_TOKEN` | – | Require `Authorization: Bearer <token>` on `/api` (set this before exposing the server) |
 | `TROONOOZ_MODEL` | `claude-opus-5-5` | Model |
 | `TROONOOZ_EFFORT` | `high` | Effort for thorough checks: `low` · `medium` · `high` · `xhigh` · `max` |
+| `TROONOOZ_QUICK_MODEL` | `claude-haiku-5-5` | Model for quick checks (thorough checks use `TROONOOZ_MODEL`). If it declines a check, troonooz retries on `TROONOOZ_MODEL`. |
 | `TROONOOZ_QUICK_EFFORT` | `medium` | Effort for quick checks |
 | `TROONOOZ_QUICK_SEARCHES` | `3` | Web searches allowed in a quick check (it also reads at most 1 page and doesn't zoom) |
 | `TROONOOZ_FALLBACKS` | `on` | Server-side refusal fallbacks |

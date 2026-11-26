@@ -178,6 +178,7 @@ export function createApp(deps: AppDeps): express.Express {
       base_url: baseUrl(req),
       demo: config.demo,
       model: config.demo ? "demo" : config.model,
+      quick_model: config.demo ? "demo" : config.quickModel,
       claude_configured: claudeConfigured,
       web_research: config.webSearchMaxUses > 0 || config.webFetchMaxUses > 0,
       server_video: await hasFfmpeg(),
@@ -489,13 +490,20 @@ export function createApp(deps: AppDeps): express.Express {
 
       prepareMs += Date.now() - relatedStarted;
       status(config.demo ? "Running demo analysis (sample data)" : mode === "quick" ? "Running a quick check with Claude" : "Analyzing with Claude");
-      const result = await analyze(
-        evidence,
-        { focus: input.focus, webResearch: input.webResearch, source: input.source, knowledge, mode },
-        config,
-        deps.streamer,
-        (e) => job.progress(e),
-      );
+      const run = (model?: string) =>
+        analyze(evidence!, { focus: input.focus, webResearch: input.webResearch, source: input.source, knowledge, mode, model }, config, deps.streamer!, (e) =>
+          job.progress(e),
+        );
+      let result;
+      try {
+        result = await run();
+      } catch (err) {
+        // The quick model has no server-side refusal fallback; retry a declined quick check on the main model.
+        if (!(err instanceof AnalysisError && err.code === "refusal" && mode === "quick" && config.quickModel !== config.model)) throw err;
+        log(`[troonooz] ${job.id} quick check declined by ${config.quickModel}; retrying on ${config.model}`);
+        status(`Retrying with ${config.model}`);
+        result = await run(config.model);
+      }
       const record: AnalysisRecord = {
         id: job.id,
         created_at: new Date(started).toISOString(),

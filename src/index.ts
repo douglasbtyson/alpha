@@ -56,7 +56,9 @@ const server = app.listen(config.port, config.host, async (err?: Error) => {
   if (config.demo) {
     console.log("DEMO MODE: every analysis returns a fixed sample report. Unset TROONOOZ_DEMO to use Claude.");
   } else {
-    console.log(`Model: ${config.model} (effort ${config.effort}); web search ${config.webSearchMaxUses > 0 ? "on" : "off"}`);
+    console.log(
+      `Thorough checks: ${config.model} (effort ${config.effort}). Quick checks: ${config.quickModel} (effort ${config.quickEffort}). Web search ${config.webSearchMaxUses > 0 ? "on" : "off"}.`,
+    );
   }
   if (!(await hasFfmpeg())) console.log("ffmpeg not found: raw video uploads need browser-side frame extraction.");
   if (config.apiToken) console.log("API token required for /api requests.");

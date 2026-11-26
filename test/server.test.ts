@@ -121,6 +121,27 @@ describe("HTTP API", () => {
     expect(rec.timing!.total_ms).toBeGreaterThanOrEqual(rec.timing!.research_ms + rec.timing!.writing_ms);
   });
 
+  it("retries a quick check on the main model when the quick model declines it", async () => {
+    const config = testConfig({ dataDir: dir, demo: true });
+    const store = new ReportStore(dir);
+    await store.init();
+    const demo = demoStreamer({ delayMs: 0 });
+    const models: string[] = [];
+    const streamer: Streamer = async (params, hooks) => {
+      models.push(params.model);
+      if (params.model === config.quickModel) {
+        return { ...(await demo(params, {})), content: [], stop_reason: "refusal", stop_details: { type: "refusal", category: null, explanation: null } } as never;
+      }
+      return demo(params, hooks);
+    };
+    const app = createApp({ config, streamer, store, jobs, log: () => {} });
+    const res = await request(app).post("/api/analyze").field("text", "Shark on the highway").field("mode", "quick").expect(202);
+    const job = await waitForJob(res.body.id);
+    expect(job.status).toBe("done");
+    expect(models).toEqual(["claude-haiku-5-5", "claude-opus-5-5"]);
+    expect((await store.get(res.body.id))!.input.mode).toBe("quick");
+  });
+
   it("sends report drafts live without adding them to the replay history", () => {
     const job = jobs.create();
     const seen: Array<[string, boolean | undefined]> = [];

@@ -84,6 +84,8 @@ describe("analyze", () => {
     const { streamer, calls } = scripted([message([submit()], "tool_use")]);
     await analyze(ev, { ...opts, mode: "quick" }, config, streamer);
     const p = calls[0]!;
+    expect(p.model).toBe("claude-haiku-5-5");
+    expect(p.fallbacks).toBeUndefined(); // Haiku has no server-side refusal fallback
     expect(p.output_config).toEqual({ effort: "medium" });
     const tools = p.tools!.map((t) => ("name" in t ? t.name : ""));
     expect(tools).toEqual(["web_search", "web_fetch", "submit_report"]);

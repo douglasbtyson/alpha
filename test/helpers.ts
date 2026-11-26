@@ -13,6 +13,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     host: "127.0.0.1",
     model: "claude-opus-5-5",
     effort: "high",
+    quickModel: "claude-haiku-5-5",
     quickEffort: "medium",
     quickSearches: 3,
     fallbacks: true,

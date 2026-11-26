@@ -148,7 +148,8 @@ function renderCheck() {
   const MODE_KEY = "troonooz.mode";
   const modeHint = document.getElementById("mode-hint");
   const setHint = (mode) => {
-    modeHint.textContent = mode === "quick" ? "Quick checks are faster but less thorough." : "Thorough checks usually take 1\u20132 minutes.";
+    modeHint.textContent =
+      mode === "quick" ? "Quick checks use a faster, cheaper model and fewer searches." : "Thorough checks usually take 1\u20132 minutes.";
   };
   let savedMode = "thorough";
   try {
@@ -592,7 +593,7 @@ async function loadHealth() {
     status.textContent = health.demo
       ? "Demo mode (sample data)"
       : health.claude_configured
-        ? `Model: ${health.model}`
+        ? `Thorough: ${health.model} \u00b7 Quick: ${health.quick_model ?? health.model}`
         : "Claude API key not configured on the server";
     const banner = document.getElementById("banner");
     if (health.demo) {

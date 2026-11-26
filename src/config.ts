@@ -13,6 +13,8 @@ export interface Config {
   effort: Effort;
   /** Server-side refusal fallbacks (`fallbacks: "default"`). Disable for proxies that reject the beta. */
   fallbacks: boolean;
+  /** Model for quick checks (thorough checks use `model`). */
+  quickModel: string;
   /** Effort for quick checks. */
   quickEffort: Effort;
   /** Max web searches for quick checks. */
@@ -80,6 +82,7 @@ export function loadConfig(): Config {
     host: process.env.HOST ?? "127.0.0.1",
     model: process.env.TROONOOZ_MODEL?.trim() || "claude-opus-5-5",
     effort: effortRaw,
+    quickModel: process.env.TROONOOZ_QUICK_MODEL?.trim() || "claude-haiku-5-5",
     quickEffort: effort("TROONOOZ_QUICK_EFFORT", "medium"),
     quickSearches: int("TROONOOZ_QUICK_SEARCHES", 3),
     fallbacks: bool("TROONOOZ_FALLBACKS", true),

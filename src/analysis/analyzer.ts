@@ -111,12 +111,15 @@ export interface AnalyzeOptions {
   source: string;
   today?: string;
   knowledge?: KnowledgeAccess;
-  /** "quick": medium effort, few searches, no zooming, short report. Default "thorough". */
+  /** "quick": the quick model, medium effort, few searches, no zooming, short report. Default "thorough". */
   mode?: CheckMode;
+  /** Use this model instead of the mode's (e.g. to retry a declined quick check on the thorough model). */
+  model?: string;
 }
 
 /** What a check may spend, by mode. */
 interface Limits {
+  model: string;
   effort: Config["effort"];
   searches: number;
   fetches: number;
@@ -126,13 +129,14 @@ interface Limits {
 function limitsFor(config: Config, mode: CheckMode): Limits {
   if (mode === "quick") {
     return {
+      model: config.quickModel,
       effort: config.quickEffort,
       searches: Math.min(config.webSearchMaxUses, config.quickSearches),
       fetches: Math.min(config.webFetchMaxUses, 1),
       zooms: 0,
     };
   }
-  return { effort: config.effort, searches: config.webSearchMaxUses, fetches: config.webFetchMaxUses, zooms: config.maxZooms };
+  return { model: config.model, effort: config.effort, searches: config.webSearchMaxUses, fetches: config.webFetchMaxUses, zooms: config.maxZooms };
 }
 
 const MAX_TURNS = 16;
@@ -250,6 +254,7 @@ export async function analyze(
   const startedAt = Date.now();
   const mode: CheckMode = options.mode ?? "thorough";
   const limits = limitsFor(config, mode);
+  if (options.model) limits.model = options.model;
   const zoomable = evidence.images.length > 0;
   const tools = buildTools(limits, options.webResearch, zoomable, options.knowledge !== undefined);
   const today = options.today ?? new Date().toISOString().slice(0, 10);
@@ -270,7 +275,7 @@ export async function analyze(
   ];
 
   const baseParams = {
-    model: config.model,
+    model: limits.model,
     max_tokens: MAX_TOKENS,
     thinking: { type: "adaptive" as const },
     output_config: { effort: limits.effort },
@@ -280,7 +285,7 @@ export async function analyze(
     cache_control: { type: "ephemeral" as const },
     tools,
     tool_choice: { type: "auto" as const },
-    ...(config.fallbacks && supportsFallbacks(config.model) ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const } : {}),
+    ...(config.fallbacks && supportsFallbacks(limits.model) ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const } : {}),
   };
 
   const ledger = new UrlLedger();
