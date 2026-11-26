@@ -46,7 +46,7 @@ export const PageCaptureSchema = z.object({
 });
 export type PageCapture = z.infer<typeof PageCaptureSchema>;
 
-export type InputSource = "web" | "extension" | "api";
+export type InputSource = "web" | "extension" | "shortcut" | "api";
 
 export type { CheckMode } from "./prompts.js";
 import type { CheckMode } from "./prompts.js";

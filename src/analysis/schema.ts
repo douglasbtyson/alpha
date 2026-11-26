@@ -154,6 +154,18 @@ const RedFlagSchema = z.object({
   description: z.string(),
 });
 
+const BackgroundSectionSchema = z.object({
+  title: z.string().describe('Short heading, e.g. "Who\'s involved", "How we got here", "Why it\'s circulating now", "What\'s disputed", "Key terms".'),
+  body: z.string().describe("2-4 plain sentences."),
+});
+
+const BackgroundSchema = z.object({
+  simple: z
+    .string()
+    .describe("2-3 everyday sentences: what this is about and the backstory a newcomer needs. Explains the topic; does not restate the verdict."),
+  sections: z.array(BackgroundSectionSchema).describe("Deeper background for readers who tap to learn more (3-5 sections, most useful first; fewer if there is little backstory)."),
+});
+
 const SourceSchema = z.object({
   title: z.string(),
   url: z.string().describe("Exact URL as it appeared in your search or fetch results."),
@@ -168,6 +180,7 @@ export const ReportSchema = z.object({
     headline: z.string().describe("One-line verdict, at most ~90 characters."),
   }),
   summary: z.string().describe("2-4 sentence plain-language bottom line for a non-expert."),
+  background: BackgroundSchema.describe("Plain-language background so the reader understands what they are looking at."),
   content: z.object({
     type: z.enum(CONTENT_TYPES),
     platform: z.string().describe('Platform or site, e.g. "Facebook", "X", "TikTok", "Amazon", "nytimes.com". "" if unknown.'),
@@ -185,6 +198,7 @@ export const ReportSchema = z.object({
 });
 
 export type Report = z.infer<typeof ReportSchema>;
+export type Background = z.infer<typeof BackgroundSchema>;
 export type ReportSource = z.infer<typeof SourceSchema>;
 
 /** A source after grounding: `seen` is true when the URL appeared in this analysis's research. */
@@ -208,5 +222,9 @@ export function normalizeReport(report: Report): Report {
       items: report.media.items.map((m) => ({ ...m, authenticity_score: clampScore(m.authenticity_score) })),
     },
     sources: report.sources.filter((s) => s.url.trim() !== ""),
+    background: {
+      simple: report.background.simple.trim(),
+      sections: report.background.sections.filter((s) => s.title.trim() && s.body.trim()),
+    },
   };
 }

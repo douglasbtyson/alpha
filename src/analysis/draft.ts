@@ -11,6 +11,8 @@ export interface ReportDraft {
   confidence: string | null;
   headline: string;
   summary: string;
+  /** The simple background explanation (background.simple). */
+  explanation: string;
 }
 
 const ESCAPES: Record<string, string> = { n: "\n", t: "\t", r: "\r", b: "\b", f: "\f" };
@@ -67,6 +69,7 @@ export function extractDraft(buf: string): ReportDraft | null {
     if (t) trust = Math.max(0, Math.min(100, Math.round(Number(t[1]))));
   }
   const summary = stringField(buf, "summary")?.value ?? "";
-  if (rating === null && trust === null && !headline && !summary) return null;
-  return { rating, trust_score: trust, confidence, headline, summary };
+  const explanation = stringField(buf, "simple")?.value ?? "";
+  if (rating === null && trust === null && !headline && !summary && !explanation) return null;
+  return { rating, trust_score: trust, confidence, headline, summary, explanation };
 }

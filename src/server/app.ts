@@ -159,11 +159,23 @@ export function createApp(deps: AppDeps): express.Express {
     res.status(401).json({ error: "unauthorized", message: "A valid API token is required." });
   };
 
-  app.get("/api/health", async (_req, res) => {
+  /** The address other apps should open: TROONOOZ_PUBLIC_URL, else what the request came in on (proxy-aware). */
+  const baseUrl = (req: Request): string => {
+    if (config.publicUrl) return config.publicUrl.replace(/\/+$/, "");
+    const first = (v: unknown) => String(v ?? "").split(",")[0]!.trim();
+    const host = first(req.headers["x-forwarded-host"]) || req.headers.host || `${config.host}:${config.port}`;
+    // Tailscale serves *.ts.net over https and proxies to plain http locally.
+    const proto = first(req.headers["x-forwarded-proto"]) || (/\.ts\.net(:\d+)?$/i.test(host) ? "https" : req.protocol);
+    return `${proto}://${host}`;
+  };
+
+  app.get("/api/health", async (req, res) => {
     res.json({
       ok: true,
       app: "troonooz",
       ui_version: version,
+      /** The address this server puts in links for other apps (see TROONOOZ_PUBLIC_URL). */
+      base_url: baseUrl(req),
       demo: config.demo,
       model: config.demo ? "demo" : config.model,
       claude_configured: claudeConfigured,
@@ -183,7 +195,7 @@ export function createApp(deps: AppDeps): express.Express {
     { name: "frames", maxCount: 64 },
   ]);
 
-  app.post("/api/analyze", requireAuth, (req, res, next) => {
+  const multipart = (req: Request, res: Response, next: NextFunction, then: () => void) => {
     upload(req, res, (err: unknown) => {
       if (err instanceof multer.MulterError) {
         const status = err.code === "LIMIT_FILE_SIZE" ? 413 : 400;
@@ -195,7 +207,70 @@ export function createApp(deps: AppDeps): express.Express {
         return;
       }
       if (err) return next(err);
-      handleAnalyze(req, res);
+      then();
+    });
+  };
+
+  app.post("/api/analyze", requireAuth, (req, res, next) => multipart(req, res, next, () => handleAnalyze(req, res)));
+
+  /**
+   * For the iPhone shortcut (and other one-tap clients): the screenshot is the
+   * raw request body ("Request Body: File" in Shortcuts), options are query
+   * parameters, quick mode is the default, and the reply carries an absolute
+   * open_url to show the result. Text bodies (a shared link or text) work too,
+   * and so does the same multipart form /api/analyze takes.
+   */
+  const rawBody = express.raw({ type: () => true, limit: config.maxFileBytes });
+  app.post("/api/scan", requireAuth, (req, res, next) => {
+    const q = req.query as Record<string, unknown>;
+    if (req.is("multipart/form-data")) {
+      multipart(req, res, next, () => {
+        const body = (req.body ?? {}) as Record<string, unknown>;
+        body.source ??= "shortcut";
+        body.mode ??= typeof q.mode === "string" ? q.mode : "quick";
+        handleAnalyze(req, res);
+      });
+      return;
+    }
+    rawBody(req, res, (err: unknown) => {
+      if (err) {
+        const tooBig = (err as { type?: string }).type === "entity.too.large";
+        res.status(tooBig ? 413 : 400).json({
+          error: "upload",
+          message: tooBig ? `The screenshot is larger than the ${Math.round(config.maxFileBytes / 1048576)} MB limit.` : "Could not read the upload.",
+        });
+        return;
+      }
+      const buf = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+      if (buf.length === 0) {
+        res.status(400).json({
+          error: "input",
+          message: "No screenshot received. In the shortcut's Get Contents of URL action, set Method to POST and Request Body to File (the screenshot).",
+        });
+        return;
+      }
+      if (jobs.runningCount() >= config.maxConcurrent) {
+        res.status(429).json({ error: "busy", message: "Too many analyses are running. Try again in a minute." });
+        return;
+      }
+      const type = String(req.headers["content-type"] ?? "application/octet-stream").split(";")[0]!.trim().toLowerCase();
+      const shared = type.startsWith("text/") ? buf.toString("utf8").trim() : "";
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      const input: AnalysisInput = {
+        files: type.startsWith("text/") ? [] : [{ name: `iphone-screenshot-${stamp}.png`, mimeType: type, buffer: buf }],
+        frames: [],
+        imageUrls: [],
+        text: shared && !isHttpUrl(shared) ? shared : "",
+        urls: shared && isHttpUrl(shared) ? [shared] : [],
+        page: null,
+        focus: parseFocus(q.focus),
+        webResearch: parseBool(q.web, true),
+        source: "shortcut",
+        mode: q.mode === "thorough" ? "thorough" : "quick",
+      };
+      const job = jobs.create();
+      res.status(202).json(jobLinks(job, req));
+      void runJob(job, input, { reuse: parseBool(q.reuse, true) });
     });
   });
 
@@ -246,7 +321,7 @@ export function createApp(deps: AppDeps): express.Express {
     });
 
     const sourceRaw = str(body.source);
-    const source: InputSource = sourceRaw === "web" || sourceRaw === "extension" ? sourceRaw : "api";
+    const source: InputSource = sourceRaw === "web" || sourceRaw === "extension" || sourceRaw === "shortcut" ? sourceRaw : "api";
     const input: AnalysisInput = {
       files: (fileMap.files ?? []).map(toUpload),
       frames,
@@ -261,15 +336,16 @@ export function createApp(deps: AppDeps): express.Express {
     };
 
     const job = jobs.create();
-    res.status(202).json(jobLinks(job));
+    res.status(202).json(jobLinks(job, req));
     void runJob(job, input, { reuse: parseBool(body.reuse, true) });
   };
 
-  const jobLinks = (job: Job) => ({
+  const jobLinks = (job: Job, req: Request) => ({
     id: job.id,
     events_url: `/api/jobs/${job.id}/events`,
     report_url: `/api/reports/${job.id}`,
     view_url: `/#/report/${job.id}`,
+    open_url: `${baseUrl(req)}/#/report/${job.id}`,
   });
 
   /** RDAP through the knowledge base's cache, when there is one. */
@@ -503,7 +579,7 @@ export function createApp(deps: AppDeps): express.Express {
       return;
     }
     const job = jobs.create();
-    res.status(202).json(jobLinks(job));
+    res.status(202).json(jobLinks(job, req));
     const { input: retainedInput, evidence, linkTo, signature } = previous.retained;
     void runJob(job, retainedInput, { reuse: false, evidence, linkTo, signature });
   });

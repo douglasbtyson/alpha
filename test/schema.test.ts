@@ -39,8 +39,17 @@ describe("report schema", () => {
     expect(unions).toBe(3);
   });
 
-  it("puts the verdict first so it is written (and shown) first", () => {
-    expect(Object.keys(schema.properties as object).slice(0, 2)).toEqual(["verdict", "summary"]);
+  it("puts the verdict, summary, and background first so they are written (and shown) first", () => {
+    expect(Object.keys(schema.properties as object).slice(0, 3)).toEqual(["verdict", "summary", "background"]);
+  });
+
+  it("drops empty background sections", () => {
+    const r = normalizeReport({
+      ...SAMPLE_NEWS_REPORT,
+      background: { simple: "  Context.  ", sections: [{ title: "Who", body: "" }, ...SAMPLE_NEWS_REPORT.background.sections] },
+    });
+    expect(r.background.simple).toBe("Context.");
+    expect(r.background.sections).toHaveLength(SAMPLE_NEWS_REPORT.background.sections.length);
   });
 
   it("accepts the sample reports", () => {

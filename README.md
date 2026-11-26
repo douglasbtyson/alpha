@@ -10,6 +10,8 @@
 
 troonooz also remembers what it has learned. If someone checks content that was already checked, they get the earlier result instantly at no cost. Findings about claims, sellers, accounts, and images also carry over to new checks (see [Shared knowledge](#shared-knowledge)).
 
+Every report starts with a plain-language **What's going on**: the background of what you're looking at, with **Explain more** for deeper sections (who's involved, how we got here, why it's circulating, what's disputed).
+
 Every report has an overall trust score (0–100), a verdict and confidence level, red flags, per-section findings, recommendations, cited sources, and stated limitations. Each cited source is checked against the URLs the research actually returned, and any source that wasn't among them is flagged.
 
 There are two ways to submit content:
@@ -30,6 +32,25 @@ npm run dev                              # http://localhost:8787
 To try the interface without an API key, run `npm run demo`. Every check then returns one of two fixed sample reports, and they are clearly labelled as demo data.
 
 For production, run `npm run build && npm start`.
+
+### Scan your iPhone screen
+
+troonooz can check whatever is on your iPhone's screen (social media apps, Safari, messages, anything). Double-tap the back of the phone and a Shortcut screenshots the current app, sends it to troonooz, and opens the result: the verdict, a plain-language **What's going on** explanation, and **Explain more** for the background. iOS doesn't let apps read other apps' screens, so a screenshot is how this works.
+
+1. **Connect the phone to troonooz with [Tailscale](https://tailscale.com)** (free for personal use). Install it on the PC running troonooz and on the iPhone, and sign in to the same account on both. Then run this once on the PC:
+   ```
+   tailscale serve --bg 8787
+   ```
+   This shares troonooz over HTTPS with your own Tailscale devices only (not the public internet), keeps sharing in the background, and resumes after a reboot. Serve needs MagicDNS and HTTPS certificates, which are on by default for new tailnets. To stop sharing, run `tailscale serve off`. Open the `https://….ts.net` address it shows in Safari on the iPhone.
+2. **Open the Phone page** (`#/phone`) on the iPhone. It shows the exact Shortcut settings for your address, with copy buttons. The Shortcut has four actions:
+   1. Take Screenshot
+   2. Get Contents of URL: `https://<your-pc>.<tailnet>.ts.net/api/scan?mode=quick`, Method POST, Request Body File (the screenshot)
+   3. Get Dictionary Value `open_url`
+   4. Open URLs
+3. **Make it one tap:** Settings → Accessibility → Touch → Back Tap → Double Tap → the Shortcut. On iPhone 15 Pro and later you can use the Action Button instead.
+4. Optionally, add troonooz to the Home Screen from Safari (Share → Add to Home Screen).
+
+If the Shortcut opens the wrong address, the Phone page says so and gives the line to add to `.env` (`TROONOOZ_PUBLIC_URL=https://…ts.net`).
 
 ### Install the browser extension
 
@@ -184,6 +205,7 @@ All settings are environment variables; `.env` is loaded automatically. See `.en
 | `TROONOOZ_VIDEO_FRAMES` | `8` | Frames sampled per server-processed video |
 | `TROONOOZ_MAX_CONCURRENT` | `3` | Concurrent checks (more get HTTP 429) |
 | `TROONOOZ_DATA_DIR` | `data` | Where reports are stored |
+| `TROONOOZ_PUBLIC_URL` | – | Address put in links for other apps (the iPhone Shortcut). Worked out from each request when unset. |
 | `TROONOOZ_DEMO` | `0` | Fixed sample reports, no API calls |
 
 ## API
@@ -208,6 +230,7 @@ Other endpoints:
 
 - `GET /api/jobs/:id/events` is a Server-Sent Events stream of `progress` events (`status`, `thinking`, `search`, `fetch`, `lookup`, `zoom`, `writing`, `draft`, `fallback`) that ends with `done`, `match` (an earlier report covers this content), or `error`. Each event has an `id`, so a reconnecting client resumes where it left off. `draft` events (the verdict while the report is written) are live only and carry no `id`. Because `EventSource` can't send headers, this endpoint also accepts the token as `?token=`.
 - `GET /api/reports/:id` returns the full record (report, inputs, thumbnails, automated signals, research log, token usage) and its `story` (other checks of the same story). `GET /api/reports` lists recent reports, and `DELETE /api/reports/:id` deletes one.
+- `POST /api/scan` is for one-tap clients such as the iPhone Shortcut. The body is a raw screenshot (or a shared link or text as `text/plain`, or the same form as `/api/analyze`). Options go in the query string: `mode` (default `quick`), `focus`, `web`, and `reuse`. It returns the same JSON as `/api/analyze` plus `open_url`, an absolute link to the live report.
 - `POST /api/jobs/:id/rerun` runs a fresh check on content from a matched job, without re-uploading it.
 - `POST /api/reports/:id/dispute` with `{"note": "..."}` flags a report as possibly wrong.
 - `GET /api/health` returns the server status, including knowledge-base counts.

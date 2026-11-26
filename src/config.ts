@@ -35,6 +35,8 @@ export interface Config {
   dataDir: string;
   /** Optional bearer token required on /api requests. */
   apiToken: string | null;
+  /** Public base URL for links handed to other apps (e.g. the iPhone shortcut). Derived from the request when unset. */
+  publicUrl: string | null;
   /** Serve canned sample reports instead of calling Claude (UI development only). */
   demo: boolean;
   maxFiles: number;
@@ -90,6 +92,7 @@ export function loadConfig(): Config {
     triageModel: process.env.TROONOOZ_TRIAGE_MODEL?.trim() || "claude-opus-5-5",
     dataDir: process.env.TROONOOZ_DATA_DIR ?? "data",
     apiToken: process.env.TROONOOZ_API_TOKEN?.trim() || null,
+    publicUrl: process.env.TROONOOZ_PUBLIC_URL?.trim() || null,
     demo: bool("TROONOOZ_DEMO", false),
     maxFiles: int("TROONOOZ_MAX_FILES", 20),
     maxFileBytes: int("TROONOOZ_MAX_FILE_MB", 100) * 1024 * 1024,

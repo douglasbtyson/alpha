@@ -20,7 +20,14 @@ describe("extractDraft", () => {
     expect(partial.headline).toBe(verdict.headline);
     expect(partial.summary.length).toBeGreaterThan(0);
     expect(summary.startsWith(partial.summary)).toBe(true);
-    expect(extractDraft(JSON_TEXT)).toEqual({ rating: "untrustworthy", trust_score: 8, confidence: "high", headline: verdict.headline, summary });
+    expect(extractDraft(JSON_TEXT)).toEqual({
+      rating: "untrustworthy",
+      trust_score: 8,
+      confidence: "high",
+      headline: verdict.headline,
+      summary,
+      explanation: SAMPLE_NEWS_REPORT.background.simple,
+    });
   });
 
   it("decodes escapes and ignores look-alike keys", () => {

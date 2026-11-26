@@ -287,6 +287,7 @@ function renderReportView(id) {
         h("div", {}, label ? h("span", { class: `badge tone-${tone}` }, label) : null, d.headline ? h("p", { class: "draft-headline" }, d.headline) : null),
       ),
       d.summary ? h("p", { class: "draft-summary" }, d.summary) : null,
+      d.explanation ? h("p", { class: "draft-explanation" }, h("strong", {}, "What's going on: "), d.explanation) : null,
     );
   };
 
@@ -490,6 +491,43 @@ async function renderHistory() {
   }
 }
 
+/* ---------------- Phone setup ---------------- */
+async function renderPhone() {
+  view.replaceChildren(fromTemplate("tpl-phone"));
+  // Opened directly at #/phone, the page may render before the startup health check returns.
+  if (!health) health = await api.health().catch(() => null);
+  if (!document.getElementById("scan-url")) return; // navigated away meanwhile
+  const origin = location.origin;
+  const local = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(origin);
+  for (const id of ["phone-origin", "phone-origin-warn"]) document.getElementById(id).textContent = origin;
+  document.getElementById("phone-warning").hidden = !local;
+  document.getElementById("scan-url").textContent = `${origin}/api/scan?mode=quick`;
+  document.getElementById("scan-url-thorough").textContent = `${origin}/api/scan?mode=thorough`;
+  document.getElementById("token-step").hidden = !health?.auth_required;
+  // The shortcut opens the link the server builds; make sure the server knows its own phone-facing address.
+  const mismatch = document.getElementById("base-mismatch");
+  if (!local && health?.base_url && health.base_url !== origin) {
+    mismatch.hidden = false;
+    mismatch.textContent = `troonooz thinks its address is ${health.base_url}, so the shortcut would open the wrong page. On the computer, add the line TROONOOZ_PUBLIC_URL=${origin} to the .env file in the troonooz folder, then restart troonooz.`;
+  }
+  for (const button of document.querySelectorAll("[data-copy]")) {
+    button.addEventListener("click", async () => {
+      const text = document.getElementById(button.dataset.copy).textContent;
+      try {
+        await navigator.clipboard.writeText(text);
+        button.textContent = "Copied";
+      } catch {
+        // Clipboard needs https; fall back to selecting the text.
+        const range = document.createRange();
+        range.selectNodeContents(document.getElementById(button.dataset.copy));
+        getSelection().removeAllRanges();
+        getSelection().addRange(range);
+        button.textContent = "Selected: copy it";
+      }
+    });
+  }
+}
+
 /* ---------------- Token dialog ---------------- */
 function promptToken() {
   if (document.querySelector("dialog[open]")) return;
@@ -531,6 +569,9 @@ function route() {
   } else if (hash.startsWith("#/history")) {
     navKey = "history";
     renderHistory();
+  } else if (hash.startsWith("#/phone")) {
+    navKey = "phone";
+    renderPhone();
   } else {
     teardown = renderCheck();
   }

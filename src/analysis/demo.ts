@@ -18,6 +18,25 @@ export const SAMPLE_NEWS_REPORT: Report = {
   summary:
     `${DEMO_NOTICE} The post claims a shark was photographed swimming on a flooded highway after this week's hurricane. ` +
     "The same photo has circulated after several storms since 2011 and is a composite: the shark was pasted into a flood photo. The claim is false.",
+  background: {
+    simple:
+      "Every time a big hurricane hits the US, the same photo of a shark swimming next to cars on a flooded highway goes viral again. " +
+      "It started circulating in 2011 and has been re-shared with new captions for almost every major storm since.",
+    sections: [
+      {
+        title: "How we got here",
+        body: "The image first spread during Hurricane Irene in 2011. It was made by pasting a shark from an old magazine photo onto a real flood picture, and it has resurfaced during Sandy, Harvey, Florence, and later storms.",
+      },
+      {
+        title: "Why it keeps circulating",
+        body: "Storm coverage creates a rush of dramatic images, and alarming posts get shared before anyone checks them. Pages that post it often gain followers fast.",
+      },
+      {
+        title: "Can sharks really end up on flooded roads?",
+        body: "Very rarely, sharks have been filmed in flooded coastal areas. That is part of why this hoax is believable, but this particular picture is fake.",
+      },
+    ],
+  },
   content: {
     type: "social_post",
     platform: "Facebook",
@@ -100,6 +119,21 @@ export const SAMPLE_VENDOR_REPORT: Report = {
   summary:
     `${DEMO_NOTICE} The ad promotes 90% off designer handbags from a "closing down" boutique. ` +
     "The store's domain was registered weeks ago, the product photos are copied from the brand's official site, and payment is only accepted by bank transfer. This matches a common online-store scam.",
+  background: {
+    simple:
+      "This is a style of online-store scam that is common on social media: an ad for luxury goods at huge discounts that leads to a newly created website. " +
+      "People who order usually receive nothing, or a cheap fake.",
+    sections: [
+      {
+        title: "How these scams work",
+        body: "Scammers copy photos from the real brand, build a store in a few hours, and pay for ads. They often close the site after a few weeks and reopen under a new name.",
+      },
+      {
+        title: "Warning signs",
+        body: "Very large discounts on luxury brands, countdown timers, a 'closing down' story, and payment by bank transfer only are the most common signs.",
+      },
+    ],
+  },
   content: {
     type: "advertisement",
     platform: "Instagram",

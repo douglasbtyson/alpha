@@ -91,6 +91,13 @@ function truncate(text: string, limit: number, what: string, notes: string[]): s
 
 export type ProgressFn = (message: string) => void;
 
+const SOURCE_LABELS: Record<string, string> = {
+  web: "the troonooz web app",
+  extension: "the troonooz browser extension",
+  shortcut: "the iPhone shortcut (a screenshot of whatever app was on screen; the user wants to understand it)",
+  api: "the API",
+};
+
 /**
  * Turn raw uploads into Claude-ready evidence: oriented/resized/tiled images,
  * sampled video frames, deterministic metadata signals, domain registration
@@ -345,7 +352,7 @@ export function buildUserContent(
       : "Web research is disabled for this request. Base the assessment on the material itself and your background knowledge, mark claims you cannot verify as unverifiable, and say so in limitations.",
     ...(opts.zoomAvailable ? ["inspect_region can zoom into any uploaded image or frame listed below by its ID."] : []),
     ...(opts.mode === "quick" ? [QUICK_INSTRUCTION] : []),
-    `Submitted via: ${opts.source}.`,
+    `Submitted via: ${SOURCE_LABELS[opts.source] ?? opts.source}.`,
   ];
   const header = `${preamble.join("\n")}\n\nEvidence inventory:\n${inventory.map((l) => `- ${l}`).join("\n")}`;
   blocks.push({ type: "text", text: header });

@@ -269,6 +269,30 @@ function renderSignals(record) {
   return section("Automated checks", h("p", { class: "muted" }, "Metadata and domain records checked before the AI analysis. Missing metadata is normal and proves nothing."), h("ul", { class: "signals" }, items));
 }
 
+/** Plain-language context, with deeper sections behind "Explain more". Older reports have none. */
+function renderBackground(rep) {
+  const bg = rep.background;
+  if (!bg || !bg.simple) return null;
+  return h(
+    "section",
+    { class: "card section background" },
+    h("h2", {}, "What's going on"),
+    h("p", { class: "background-simple" }, bg.simple),
+    bg.sections.length
+      ? h(
+          "details",
+          { class: "explain" },
+          h("summary", {}, h("span", { class: "explain-more" }, "Explain more"), h("span", { class: "explain-less" }, "Show less")),
+          h(
+            "div",
+            { class: "explain-body" },
+            bg.sections.map((s) => h("div", { class: "explain-section" }, h("h3", {}, s.title), h("p", {}, s.body))),
+          ),
+        )
+      : null,
+  );
+}
+
 /** Other checks of the same story (claim, event, media, or offer). */
 function renderStory(record) {
   const story = record.story;
@@ -405,6 +429,7 @@ export function renderReport(root, record, actions) {
         h("p", { class: "verdict-summary" }, rep.summary),
       ),
     ),
+    renderBackground(rep),
     rep.red_flags.length
       ? section(
           "Red flags",

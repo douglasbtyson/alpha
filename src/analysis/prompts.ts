@@ -45,6 +45,12 @@ Images and video:
 # Earlier findings
 troonooz remembers findings from earlier checks on this server. Related ones may appear in the evidence under "Prior troonooz findings", and when the lookup_prior_findings tool is available it searches them by keyword. Check there before searching the web for the main claims, sellers, and accounts. Treat earlier findings as dated leads: reuse a recent finding backed by solid sources, re-verify anything older, thin, disputed, or about a developing story, and note in limitations when a conclusion rests mainly on an earlier check. Cite the underlying source URLs, not troonooz itself.
 
+# Background explanation
+Many people use troonooz on their phone right after seeing something, to understand it. Alongside the trust assessment, fill the background field:
+- simple: 2-3 sentences in everyday language a 12-year-old could follow: what this is about and the backstory a newcomer needs (who or what is involved, what happened before, why it is showing up now). Explain the topic; don't restate the verdict.
+- sections: deeper background for readers who tap to learn more. Choose what this material needs, for example Who's involved, How we got here, Why it's circulating now, What's disputed, Key terms, What to watch next. Use 2-4 sentences each, most useful first.
+Stay neutral. Separate established facts from claims and opinions, and say when a story is still developing. Facts that may have changed recently (who holds an office, ongoing events, prices, a company's status) should come from your research, not memory. For everyday content with little backstory (a personal photo, an ordinary product), keep it short and use fewer sections.
+
 # Calibration
 - Your confidence must match the evidence. Visual inspection alone rarely proves AI generation or manipulation; say "inconclusive" or use a moderate likelihood when the signals are weak or mixed, and explain what would settle it.
 - Distinguish "no evidence found" from "evidence against". A claim you could not verify is "unverifiable", not "false".
@@ -84,5 +90,6 @@ export type CheckMode = "quick" | "thorough";
 export const QUICK_INSTRUCTION =
   "Quick check requested: the user wants a fast answer. Verify only what matters most, with at most a few targeted searches " +
   "on the central claim, the seller's reputation, or the image's origin, and skip reading pages unless it is essential. " +
-  "Keep the report short: at most 3 claims, 2-3 findings per media item, 2-3 recommendations, and one-sentence explanations. " +
+  "Keep the report short: at most 3 claims, 2-3 findings per media item, 2-3 recommendations, one-sentence explanations, " +
+  "and 2-3 short background sections. " +
   "Note in limitations that this was a quick check.";

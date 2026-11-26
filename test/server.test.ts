@@ -126,10 +126,73 @@ describe("HTTP API", () => {
     const seen: Array<[string, boolean | undefined]> = [];
     job.on("event", (e, transient) => seen.push([e.event?.type ?? e.type, transient]));
     job.progress({ type: "writing" });
-    job.progress({ type: "draft", draft: { rating: "mixed", trust_score: 55, confidence: null, headline: "", summary: "" } });
+    job.progress({ type: "draft", draft: { rating: "mixed", trust_score: 55, confidence: null, headline: "", summary: "", explanation: "" } });
     expect(job.events.map((e) => (e.type === "progress" ? e.event.type : e.type))).toEqual(["writing"]);
     expect(job.latestDraft).not.toBeNull();
     expect(seen).toEqual([["writing", undefined], ["draft", true]]);
+  });
+
+  describe("iPhone scan endpoint", () => {
+    it("takes a raw screenshot body, defaults to a quick check, and returns a link to open", async () => {
+      const { app, store } = await makeApp();
+      const res = await request(app)
+        .post("/api/scan")
+        .set("Host", "my-pc.tail1234.ts.net")
+        .set("Content-Type", "image/png")
+        .send(await solidPng(390, 844))
+        .expect(202);
+      expect(res.body.open_url).toBe(`https://my-pc.tail1234.ts.net/#/report/${res.body.id}`);
+      const job = await waitForJob(res.body.id);
+      expect(job.status).toBe("done");
+      const rec = (await store.get(res.body.id))!;
+      expect(rec.input).toMatchObject({ source: "shortcut", mode: "quick" });
+      expect(rec.input.thumbnails).toHaveLength(1);
+      expect(rec.report.background.simple).toContain("shark");
+    });
+
+    it("honours forwarded headers, an explicit public URL, and query options", async () => {
+      const { app } = await makeApp();
+      const fwd = await request(app)
+        .post("/api/scan?mode=thorough&focus=news")
+        .set("X-Forwarded-Proto", "https")
+        .set("X-Forwarded-Host", "troonooz.example.net")
+        .set("Content-Type", "image/png")
+        .send(await solidPng(100, 100))
+        .expect(202);
+      expect(fwd.body.open_url).toMatch(/^https:\/\/troonooz\.example\.net\/#\/report\//);
+      const job = await waitForJob(fwd.body.id);
+      expect(job.status).toBe("done");
+
+      jobs.close();
+      jobs = new JobStore();
+      const { app: pinned } = await makeApp({ publicUrl: "https://pinned.example/" });
+      const res = await request(pinned).post("/api/scan").set("Content-Type", "image/png").send(await solidPng(100, 100)).expect(202);
+      expect(res.body.open_url).toBe(`https://pinned.example/#/report/${res.body.id}`);
+      await waitForJob(res.body.id);
+      const health = await request(pinned).get("/api/health").expect(200);
+      expect(health.body.base_url).toBe("https://pinned.example");
+    });
+
+    it("accepts a shared link or text, and explains an empty body", async () => {
+      const { app, store } = await makeApp();
+      const link = await request(app).post("/api/scan").set("Content-Type", "text/plain").send("https://news.example/story?utm_source=x").expect(202);
+      await waitForJob(link.body.id);
+      expect((await store.get(link.body.id))!.input.urls).toEqual(["https://news.example/story?utm_source=x"]);
+      const empty = await request(app).post("/api/scan").set("Content-Type", "image/png").send(Buffer.alloc(0)).expect(400);
+      expect(empty.body.message).toContain("Request Body to File");
+    });
+
+    it("also accepts the multipart form, as a quick shortcut check by default", async () => {
+      const { app, store } = await makeApp();
+      const res = await request(app).post("/api/scan").attach("files", await solidPng(200, 200), "s.png").expect(202);
+      await waitForJob(res.body.id);
+      expect((await store.get(res.body.id))!.input).toMatchObject({ source: "shortcut", mode: "quick" });
+    });
+
+    it("requires the API token when one is set", async () => {
+      const { app } = await makeApp({ apiToken: "s3cret" });
+      await request(app).post("/api/scan").set("Content-Type", "image/png").send(await solidPng(50, 50)).expect(401);
+    });
   });
 
   it("reports input problems through the job", async () => {

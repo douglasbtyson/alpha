@@ -25,6 +25,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     triageModel: "claude-opus-5-5",
     dataDir: "data",
     apiToken: null,
+    publicUrl: null,
     demo: false,
     maxFiles: 20,
     maxFileBytes: 50 * 1024 * 1024,
