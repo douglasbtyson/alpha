@@ -1,6 +1,6 @@
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { describe, expect, it } from "vitest";
-import { SAMPLE_NEWS_REPORT, SAMPLE_VENDOR_REPORT } from "../src/analysis/demo.js";
+import { SAMPLE_NEWS_REPORT, SAMPLE_NOTHING_REPORT, SAMPLE_VENDOR_REPORT } from "../src/analysis/demo.js";
 import { normalizeReport, ReportSchema } from "../src/analysis/schema.js";
 
 const UNSUPPORTED = ["minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf", "minLength", "maxLength", "minItems", "maxItems", "pattern"];
@@ -55,6 +55,20 @@ describe("report schema", () => {
   it("accepts the sample reports", () => {
     expect(ReportSchema.safeParse(SAMPLE_NEWS_REPORT).success).toBe(true);
     expect(ReportSchema.safeParse(SAMPLE_VENDOR_REPORT).success).toBe(true);
+    expect(ReportSchema.safeParse(SAMPLE_NOTHING_REPORT).success).toBe(true);
+  });
+
+  it("asks for the reasons behind every score", () => {
+    const verdict = (schema.properties as Record<string, { properties: object; required: string[] }>).verdict!;
+    expect(verdict.required).toEqual(expect.arrayContaining(["score_reason", "would_raise"]));
+  });
+
+  it("pins 'nothing to verify' verdicts to a neutral score with nothing to raise", () => {
+    const r = normalizeReport({
+      ...SAMPLE_NOTHING_REPORT,
+      verdict: { ...SAMPLE_NOTHING_REPORT.verdict, trust_score: 91, would_raise: "More sources" },
+    });
+    expect(r.verdict).toMatchObject({ rating: "nothing_to_check", trust_score: 50, would_raise: "" });
   });
 
   it("normalizeReport clamps and rounds scores and drops empty source URLs", () => {

@@ -70,7 +70,7 @@ export function extractFindings(rec: AnalysisRecord): FindingRow[] {
         ref: null,
         title: r.content.platform ? `${r.content.author} (${r.content.platform})` : r.content.author,
         verdict: r.news?.rating ?? r.verdict.rating,
-        score: r.news?.score ?? r.verdict.trust_score,
+        score: r.news?.score ?? (r.verdict.rating === "nothing_to_check" ? null : r.verdict.trust_score),
         summary: r.news?.source_assessment || r.summary,
         details: { platform: r.content.platform, author: r.content.author },
       });

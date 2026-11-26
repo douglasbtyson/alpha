@@ -32,7 +32,11 @@ export const OVERALL_RATINGS = [
   "questionable",
   "untrustworthy",
   "unverifiable",
+  "nothing_to_check",
 ] as const;
+
+/** Neutral score stored for "nothing_to_check" verdicts; the app shows no number for them. */
+export const NOTHING_TO_CHECK_SCORE = 50;
 
 export const CONFIDENCE_LEVELS = ["low", "medium", "high"] as const;
 
@@ -178,6 +182,12 @@ export const ReportSchema = z.object({
     trust_score: score("Overall trustworthiness (see rubric in the instructions)."),
     confidence: z.enum(CONFIDENCE_LEVELS),
     headline: z.string().describe("One-line verdict, at most ~90 characters."),
+    score_reason: z
+      .string()
+      .describe("One or two plain sentences: what raised or lowered the score most. For nothing_to_check, why there is nothing to verify."),
+    would_raise: z
+      .string()
+      .describe('What evidence would move the score higher, in one plain sentence. "" if nothing could, or for nothing_to_check.'),
   }),
   summary: z.string().describe("2-4 sentence plain-language bottom line for a non-expert."),
   background: BackgroundSchema.describe("Plain-language background so the reader understands what they are looking at."),
@@ -211,7 +221,12 @@ const clampScore = (n: number) => Math.max(0, Math.min(100, Math.round(Number.is
 export function normalizeReport(report: Report): Report {
   return {
     ...report,
-    verdict: { ...report.verdict, trust_score: clampScore(report.verdict.trust_score) },
+    verdict: {
+      ...report.verdict,
+      trust_score: report.verdict.rating === "nothing_to_check" ? NOTHING_TO_CHECK_SCORE : clampScore(report.verdict.trust_score),
+      score_reason: report.verdict.score_reason.trim(),
+      would_raise: report.verdict.rating === "nothing_to_check" ? "" : report.verdict.would_raise.trim(),
+    },
     news: report.news && {
       ...report.news,
       score: clampScore(report.news.score),

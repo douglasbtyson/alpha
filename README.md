@@ -14,6 +14,15 @@ Every report starts with a plain-language **What's going on**: the background of
 
 Every report has an overall trust score (0–100), a verdict and confidence level, red flags, per-section findings, recommendations, cited sources, and stated limitations. Each cited source is checked against the URLs the research actually returned, and any source that wasn't among them is flagged.
 
+**How the trust score works.** Claude gives one overall judgment on a 0–100 scale using the rubric in `src/analysis/prompts.ts`:
+- **85–100:** corroborated by independent reputable sources, or an established reputable seller
+- **70–84:** mostly reliable
+- **50–69:** mixed
+- **30–49:** questionable
+- **0–29:** false, fabricated, or a likely scam
+
+Every report says **why** it got its score and **what would raise it**. Content with nothing to check (an ordinary chat, a settings screen, a personal photo with no claim) is rated **Nothing to verify** and shows no number. A score of 100 needs strong independent confirmation, so everyday content that only "looks fine" lands lower by design.
+
 There are two ways to submit content:
 
 - **Web app**: drop, paste (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>V</kbd>), or browse for screenshots, photos, and videos, and add text or links.

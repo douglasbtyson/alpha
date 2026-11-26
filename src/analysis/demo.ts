@@ -50,6 +50,8 @@ export const SAMPLE_NEWS_REPORT: Report = {
     trust_score: 8,
     confidence: "high",
     headline: "Recycled hoax: a doctored shark photo shared after every major storm",
+    score_reason: "Fact-checkers have traced the image to two older photos, and the page presents a years-old fake as happening now.",
+    would_raise: "",
   },
   news: {
     rating: "false",
@@ -146,6 +148,8 @@ export const SAMPLE_VENDOR_REPORT: Report = {
     trust_score: 12,
     confidence: "high",
     headline: "Likely scam store: brand-new domain, stolen photos, unrealistic prices",
+    score_reason: "The store's website is weeks old, its photos are copied from the brand, and it only takes bank transfers.",
+    would_raise: "Independent reviews from real customers, or listing as an authorized retailer on the brand's own website.",
   },
   news: null,
   vendor: {
@@ -182,6 +186,36 @@ export const SAMPLE_VENDOR_REPORT: Report = {
       supports: "Describes the same pattern of new domains, deep discounts, and transfer-only payment.",
     },
   ],
+  limitations: ["Demo data: no real analysis was performed."],
+};
+
+export const SAMPLE_NOTHING_REPORT: Report = {
+  verdict: {
+    rating: "nothing_to_check",
+    trust_score: 50,
+    confidence: "high",
+    headline: "An ordinary chat: no claims, sales pitch, or suspicious media",
+    score_reason: "The screenshot shows a private conversation with no factual claims, nothing for sale, and no images whose authenticity matters.",
+    would_raise: "",
+  },
+  summary: `${DEMO_NOTICE} This is a screenshot of an everyday chat. There is nothing in it to fact-check or worry about.`,
+  background: {
+    simple: "This is a conversation in a messaging or AI chat app. It contains everyday discussion rather than news, offers, or shared media.",
+    sections: [],
+  },
+  content: {
+    type: "message",
+    platform: "Chat app",
+    author: "",
+    published: "",
+    description: "A screenshot of a chat conversation.",
+  },
+  news: null,
+  vendor: null,
+  media: null,
+  red_flags: [],
+  recommendations: ["No action needed."],
+  sources: [],
   limitations: ["Demo data: no real analysis was performed."],
 };
 
@@ -225,7 +259,8 @@ export function demoStreamer(opts: { delayMs?: number } = {}): Streamer {
     const userText =
       typeof first === "string" ? first : first.map((b) => (b.type === "text" ? b.text : "")).join("\n");
     const wantsVendor = /Focus requested by the user: vendor/.test(userText) || /closing down|discount|% off|\bshop\b|\bstore\b/i.test(userText);
-    const sample = wantsVendor ? SAMPLE_VENDOR_REPORT : SAMPLE_NEWS_REPORT;
+    const wantsNothing = /\bnothing to (?:check|verify)\b/i.test(userText);
+    const sample = wantsNothing ? SAMPLE_NOTHING_REPORT : wantsVendor ? SAMPLE_VENDOR_REPORT : SAMPLE_NEWS_REPORT;
     const hasWeb = params.tools?.some((t) => "name" in t && t.name === "web_search") ?? false;
 
     const blocks: ContentBlock[] = [];

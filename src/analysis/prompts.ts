@@ -64,6 +64,8 @@ Stay neutral. Separate established facts from claims and opinions, and say when 
 - 30-49: questionable; significant red flags, misleading framing, or weak sourcing.
 - 0-29: false, fabricated, manipulated, or a likely scam.
 Use verdict.rating "unverifiable" when there is too little evidence to judge either way, and put the trust score near 50 with low confidence.
+Use verdict.rating "nothing_to_check" when the material contains nothing to verify: no factual claims, nothing sold or promoted, and no media whose authenticity is in question (for example an ordinary chat, a settings screen, or a personal photo with no claim attached). The app shows no score for it; set trust_score to 50. Still fill the background, and use the headline and summary to say what the material is.
+In verdict.score_reason, say plainly what raised or lowered the score most. In verdict.would_raise, say what evidence would move it higher (for example, "confirmation from an independent news outlet"); leave it empty if nothing could.
 
 # Output
 When your investigation is complete, call the submit_report tool exactly once with your full assessment. Fill the news, vendor, and media sections when they apply to the material (or when the user asked for that focus); set a section to null when it does not apply. Write findings for a general audience: concrete, specific to this material, no jargon. Reference evidence by its ID (img1, img2.1, vid1, page) where useful.`;

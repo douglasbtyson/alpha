@@ -1,7 +1,7 @@
 import { api, ApiError, getToken, setToken, subscribe } from "./js/api.js";
 import { fromTemplate, h, hostOf, timeAgo } from "./js/dom.js";
 import { extractFrames } from "./js/frames.js";
-import { CONTENT_TYPES, OVERALL, renderReport, scoreTone, summaryText } from "./js/render.js";
+import { CONTENT_TYPES, OVERALL, renderReport, scoreAria, scoreText, scoreTone, summaryText } from "./js/render.js";
 
 const view = document.getElementById("view");
 let health = null;
@@ -283,7 +283,9 @@ function renderReportView(id) {
       h(
         "div",
         { class: "draft-head" },
-        d.trust_score !== null ? h("span", { class: `score-pill tone-${scoreTone(d.trust_score, d.rating)}` }, d.trust_score) : null,
+        d.trust_score !== null && d.rating !== "nothing_to_check"
+          ? h("span", { class: `score-pill tone-${scoreTone(d.trust_score, d.rating)}` }, d.trust_score)
+          : null,
         h("div", {}, label ? h("span", { class: `badge tone-${tone}` }, label) : null, d.headline ? h("p", { class: "draft-headline" }, d.headline) : null),
       ),
       d.summary ? h("p", { class: "draft-summary" }, d.summary) : null,
@@ -330,7 +332,7 @@ function renderReportView(id) {
         { class: "match-report", href: `#/report/${m.id}` },
         m.thumbnail ? h("img", { class: "history-thumb", src: m.thumbnail, alt: "" }) : h("div", { class: "history-thumb" }),
         h("div", {}, h("p", { class: "history-title" }, m.headline), h("p", { class: "history-sub" }, label)),
-        h("span", { class: `score-pill tone-${tone}`, "aria-label": `Trust score ${m.trust_score}` }, m.trust_score),
+        h("span", { class: `score-pill tone-${tone}`, "aria-label": scoreAria(m.trust_score, m.rating) }, scoreText(m.trust_score, m.rating)),
       ),
       h("div", { class: "report-actions" }, h("a", { class: "btn btn-primary", href: `#/report/${m.id}` }, "View that report"), rerun),
       h(
@@ -480,7 +482,7 @@ async function renderHistory() {
               h("p", { class: "history-title" }, r.headline),
               h("p", { class: "history-sub" }, [label, CONTENT_TYPES[r.content_type] ?? r.content_type, r.platform, timeAgo(r.created_at), r.demo ? "demo" : ""].filter(Boolean).join(" · ")),
             ),
-            h("span", { class: `score-pill tone-${tone}`, "aria-label": `Trust score ${r.trust_score}` }, r.trust_score),
+            h("span", { class: `score-pill tone-${tone}`, "aria-label": scoreAria(r.trust_score, r.rating) }, scoreText(r.trust_score, r.rating)),
           ),
         );
       }),

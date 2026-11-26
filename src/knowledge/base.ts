@@ -216,7 +216,7 @@ export function formatStories(cards: StoryCard[], now = new Date()): string {
       const days = Math.round((now.getTime() - new Date(c.lastChecked).getTime()) / 86_400_000);
       const when = days < 1 ? "today" : `${days} day${days === 1 ? "" : "s"} ago`;
       const lines = [
-        `${i + 1}. STORY: ${c.title} \u2192 ${c.verdict} (${c.trustScore}/100). Checked ${c.checks} time${c.checks === 1 ? "" : "s"}, most recently ${c.lastChecked.slice(0, 10)} (${when}).`,
+        `${i + 1}. STORY: ${c.title} \u2192 ${c.verdict}${c.verdict === "nothing_to_check" ? "" : ` (${c.trustScore}/100)`}. Checked ${c.checks} time${c.checks === 1 ? "" : "s"}, most recently ${c.lastChecked.slice(0, 10)} (${when}).`,
       ];
       if (c.disputed) lines.push("   A user flagged the latest result as possibly wrong; re-verify.");
       if (c.summary) lines.push(`   What it was: ${c.summary.slice(0, 400)}`);

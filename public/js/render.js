@@ -7,7 +7,17 @@ const OVERALL = {
   questionable: ["Questionable", "warn"],
   untrustworthy: ["Untrustworthy", "bad"],
   unverifiable: ["Unverifiable", "neutral"],
+  nothing_to_check: ["Nothing to verify", "neutral"],
 };
+
+/** "Nothing to verify" verdicts have no meaningful number, so they show a dash. */
+export function scoreText(score, rating) {
+  return rating === "nothing_to_check" ? "\u2013" : String(score);
+}
+
+export function scoreAria(score, rating) {
+  return rating === "nothing_to_check" ? "Nothing to verify" : `Trust score ${score}`;
+}
 
 const NEWS = {
   verified: ["Verified", "good"],
@@ -81,7 +91,7 @@ const LIKELIHOOD_LABEL = {
 };
 
 export function scoreTone(score, rating) {
-  if (rating === "unverifiable") return "neutral";
+  if (rating === "unverifiable" || rating === "nothing_to_check") return "neutral";
   if (score >= 85) return "good";
   if (score >= 70) return "ok";
   if (score >= 50) return "caution";
@@ -104,6 +114,13 @@ function badge(map, key, extra = "") {
 }
 
 function gauge(score, rating) {
+  if (rating === "nothing_to_check") {
+    return h(
+      "div",
+      { class: "gauge gauge-none", role: "img", "aria-label": "Nothing to verify" },
+      h("div", { class: "gauge-label" }, h("span", { class: "gauge-check", "aria-hidden": "true" }, "\u2713"), h("span", { class: "gauge-caption" }, "Nothing to verify")),
+    );
+  }
   const tone = scoreTone(score, rating);
   const r = 62;
   const c = 2 * Math.PI * r;
@@ -269,6 +286,18 @@ function renderSignals(record) {
   return section("Automated checks", h("p", { class: "muted" }, "Metadata and domain records checked before the AI analysis. Missing metadata is normal and proves nothing."), h("ul", { class: "signals" }, items));
 }
 
+/** What moved the score, and what would raise it. Older reports have neither. */
+function scoreWhy(verdict) {
+  if (!verdict.score_reason && !verdict.would_raise) return null;
+  const none = verdict.rating === "nothing_to_check";
+  return h(
+    "div",
+    { class: "score-why" },
+    verdict.score_reason ? h("p", {}, h("strong", {}, none ? "Why there's no score: " : "Why this score: "), verdict.score_reason) : null,
+    !none && verdict.would_raise ? h("p", {}, h("strong", {}, "What would raise it: "), verdict.would_raise) : null,
+  );
+}
+
 /** Plain-language context, with deeper sections behind "Explain more". Older reports have none. */
 function renderBackground(rep) {
   const bg = rep.background;
@@ -311,7 +340,7 @@ function renderStory(record) {
           h(
             "a",
             { href: `#/report/${m.id}` },
-            h("span", { class: `score-pill tone-${scoreTone(m.trust_score, m.rating)}` }, m.trust_score),
+            h("span", { class: `score-pill tone-${scoreTone(m.trust_score, m.rating)}`, "aria-label": scoreAria(m.trust_score, m.rating) }, scoreText(m.trust_score, m.rating)),
             h("span", { class: "related-text" }, h("span", { class: "related-title" }, m.headline), h("span", { class: "related-date" }, new Date(m.created_at).toLocaleString(), m.disputed ? " \u00b7 flagged as possibly wrong" : "")),
           ),
         ),
@@ -422,11 +451,14 @@ export function renderReport(root, record, actions) {
           "div",
           { class: "verdict-rating" },
           badge(OVERALL, rep.verdict.rating, "badge-lg"),
-          h("span", { class: "badge tone-neutral" }, `${rep.verdict.confidence[0].toUpperCase()}${rep.verdict.confidence.slice(1)} confidence`),
+          rep.verdict.rating === "nothing_to_check"
+            ? null
+            : h("span", { class: "badge tone-neutral" }, `${rep.verdict.confidence[0].toUpperCase()}${rep.verdict.confidence.slice(1)} confidence`),
           record.input?.mode === "quick" ? h("span", { class: "badge tone-caution", title: "Fewer searches and a shorter report than a thorough check" }, "Quick check") : null,
         ),
         h("h1", {}, rep.verdict.headline),
         h("p", { class: "verdict-summary" }, rep.summary),
+        scoreWhy(rep.verdict),
       ),
     ),
     renderBackground(rep),
@@ -490,7 +522,9 @@ export function renderReport(root, record, actions) {
 export function summaryText(record) {
   const r = record.report;
   const [label] = OVERALL[r.verdict.rating] ?? [r.verdict.rating];
-  const lines = [`troonooz: ${label} (${r.verdict.trust_score}/100)`, r.verdict.headline, "", r.summary];
+  const score = r.verdict.rating === "nothing_to_check" ? "" : ` (${r.verdict.trust_score}/100)`;
+  const lines = [`troonooz: ${label}${score}`, r.verdict.headline, "", r.summary];
+  if (r.verdict.score_reason) lines.push("", `Why: ${r.verdict.score_reason}`);
   if (r.red_flags.length) {
     lines.push("", "Red flags:");
     for (const f of r.red_flags) lines.push(`- ${f.description}`);

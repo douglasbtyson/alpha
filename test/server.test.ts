@@ -195,6 +195,15 @@ describe("HTTP API", () => {
     });
   });
 
+  it("gives content with nothing to verify a 'nothing to check' verdict", async () => {
+    const { app, store } = await makeApp();
+    const res = await request(app).post("/api/analyze").field("text", "Just a chat with nothing to verify in it, really nothing").expect(202);
+    await waitForJob(res.body.id);
+    const rec = (await store.get(res.body.id))!;
+    expect(rec.report.verdict).toMatchObject({ rating: "nothing_to_check", trust_score: 50, would_raise: "" });
+    expect(rec.report.verdict.score_reason).not.toBe("");
+  });
+
   it("reports input problems through the job", async () => {
     const { app } = await makeApp();
     const res = await request(app).post("/api/analyze").field("source", "web").expect(202);
